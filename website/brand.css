@@ -2,8 +2,6 @@
  * Rust CLI for turning PDF receipts into structured JSON. Palette leans
  * "document under a lamp, minimal". Explicitly non-Tailwind. */
 
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700&display=swap');
-
 :root {
   /* ── Brand ─────────────────────────────────────────────── */
   --brand-primary:        #F5CE47;  /* warm yellow */

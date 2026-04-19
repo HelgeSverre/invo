@@ -6,6 +6,10 @@
   <title>invo — receipts in, structured JSON out</title>
   <meta name="description" content="A Rust CLI that turns PDF receipts and invoices into structured JSON — vendor, date, total, line items. Runs locally by default via Ollama, with OpenAI and Anthropic as fallback.">
   <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700;800&family=JetBrains+Mono:wght@400;700&display=swap">
+  <link rel="stylesheet" href="brand.css">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -13,7 +17,7 @@
   <nav class="nav">
     <div class="container nav-inner">
       <a class="brand" href="#">
-        <img src="logo.svg" alt="">
+        <img src="logo.svg" alt="" width="24" height="24">
         <span>inv<em>o</em></span>
       </a>
       <div class="nav-links">
@@ -36,7 +40,7 @@
       <div class="install-block">
         <span class="dollar">$</span>
         <span id="cmd-install">cargo install --git https://github.com/HelgeSverre/invo</span>
-        <button class="copy-btn" data-copy="cmd-install" type="button">copy</button>
+        <button class="copy-btn" data-copy="cmd-install" type="button" aria-label="Copy install command">copy</button>
       </div>
 
       <p class="requirements">
@@ -186,16 +190,16 @@
         </p>
       </div>
 
-      <div class="tabs" role="tablist">
-        <div class="tab-bar">
-          <button class="tab-btn active" data-tab="first">First run</button>
-          <button class="tab-btn" data-tab="batch">Batch (glob)</button>
-          <button class="tab-btn" data-tab="format">Change format</button>
-          <button class="tab-btn" data-tab="provider">Override provider</button>
+      <div class="tabs">
+        <div class="tab-bar" role="tablist">
+          <button class="tab-btn active" role="tab" aria-selected="true" aria-controls="panel-first" id="tab-first" data-tab="first">First run</button>
+          <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-batch" id="tab-batch" data-tab="batch">Batch (glob)</button>
+          <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-format" id="tab-format" data-tab="format">Change format</button>
+          <button class="tab-btn" role="tab" aria-selected="false" aria-controls="panel-provider" id="tab-provider" data-tab="provider">Override provider</button>
         </div>
 
-        <div class="tab-panel active" data-tab="first">
-          <button class="copy-btn tab-copy" data-copy="snippet-first">copy</button>
+        <div class="tab-panel active" role="tabpanel" id="panel-first" aria-labelledby="tab-first" data-tab="first">
+          <button class="copy-btn tab-copy" data-copy="snippet-first" aria-label="Copy first-run snippet">copy</button>
 <pre id="snippet-first"><span class="tok-prompt">$</span> <span class="tok-cmd">invo init</span>
 <span class="tok-cmt"># Created config file at ~/.config/invo/config.yaml</span>
 
@@ -204,8 +208,8 @@
 <span class="tok-cmt"># → prints structured JSON to stdout</span></pre>
         </div>
 
-        <div class="tab-panel" data-tab="batch">
-          <button class="copy-btn tab-copy" data-copy="snippet-batch">copy</button>
+        <div class="tab-panel" role="tabpanel" id="panel-batch" aria-labelledby="tab-batch" data-tab="batch">
+          <button class="copy-btn tab-copy" data-copy="snippet-batch" aria-label="Copy batch snippet">copy</button>
 <pre id="snippet-batch"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span class="tok-str">"receipts/2025/**/*.pdf"</span>
 <span class="tok-cmt"># Expands glob, processes each PDF in parallel via rayon.</span>
 <span class="tok-cmt"># Per-file JSON to stdout; duplicates skipped via SHA-256.</span>
@@ -214,8 +218,8 @@
 <span class="tok-cmt"># Sum totals across a year of receipts. No spreadsheet.</span></pre>
         </div>
 
-        <div class="tab-panel" data-tab="format">
-          <button class="copy-btn tab-copy" data-copy="snippet-format">copy</button>
+        <div class="tab-panel" role="tabpanel" id="panel-format" aria-labelledby="tab-format" data-tab="format">
+          <button class="copy-btn tab-copy" data-copy="snippet-format" aria-label="Copy format snippet">copy</button>
 <pre id="snippet-format"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--format</span> yaml
 <span class="tok-cmt"># Human-readable YAML instead of JSON</span>
 
@@ -224,8 +228,8 @@
 <span class="tok-cmt"># Pipe-friendly for spreadsheets, ledgers, or hledger imports.</span></pre>
         </div>
 
-        <div class="tab-panel" data-tab="provider">
-          <button class="copy-btn tab-copy" data-copy="snippet-provider">copy</button>
+        <div class="tab-panel" role="tabpanel" id="panel-provider" aria-labelledby="tab-provider" data-tab="provider">
+          <button class="copy-btn tab-copy" data-copy="snippet-provider" aria-label="Copy provider snippet">copy</button>
 <pre id="snippet-provider"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--provider</span> anthropic
 <span class="tok-cmt"># Skip the fallback chain — force Claude for this run.</span>
 
@@ -250,7 +254,7 @@
       <div class="config-block">
         <div class="pane-head">
           <span class="pane-title">~/.config/invo/config.yaml</span>
-          <button class="copy-btn" data-copy="config-sample">copy</button>
+          <button class="copy-btn" data-copy="config-sample" aria-label="Copy config example">copy</button>
         </div>
 <pre id="config-sample"><span class="tok-key">llm</span>:
   <span class="tok-key">providers</span>:
@@ -292,9 +296,9 @@
   </section>
 
   <footer>
-    <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+    <div class="container footer-inner">
       <div class="footer-brand">
-        <img src="logo.svg" alt="">
+        <img src="logo.svg" alt="" width="20" height="20">
         <span>invo</span>
       </div>
       <div class="footer-meta">
@@ -306,7 +310,6 @@
   </footer>
 
   <script>
-    // Click-to-copy on every .copy-btn
     document.querySelectorAll('.copy-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const targetId = btn.getAttribute('data-copy');
@@ -325,12 +328,14 @@
       });
     });
 
-    // Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         const tab = btn.getAttribute('data-tab');
-        btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
+        btn.parentElement.querySelectorAll('.tab-btn').forEach(b => {
+          const isActive = b === btn;
+          b.classList.toggle('active', isActive);
+          b.setAttribute('aria-selected', String(isActive));
+        });
         const tabs = btn.closest('.tabs');
         tabs.querySelectorAll('.tab-panel').forEach(p => {
           p.classList.toggle('active', p.getAttribute('data-tab') === tab);
