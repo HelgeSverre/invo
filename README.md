@@ -1,4 +1,4 @@
-# <img src="website/logo.svg" width="32" height="32" alt=""> invo
+# invo
 
 A Rust CLI that extracts structured data from PDF receipts and invoices using LLMs, locally by default.
 
