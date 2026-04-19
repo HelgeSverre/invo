@@ -60,21 +60,15 @@ fn count_pages(bytes: &[u8]) -> usize {
     }
 }
 
-/// Check if a file is a valid PDF
+/// Check if a file is a valid PDF (by extension + magic bytes).
 pub fn is_pdf(path: &Path) -> bool {
-    // Check extension
-    if let Some(ext) = path.extension() {
-        if ext.to_string_lossy().to_lowercase() != "pdf" {
-            return false;
-        }
-    } else {
+    let Some(ext) = path.extension() else { return false };
+    if ext.to_string_lossy().to_lowercase() != "pdf" {
         return false;
     }
 
-    // Check magic bytes
-    if let Ok(bytes) = std::fs::read(path) {
-        return bytes.starts_with(b"%PDF");
-    }
-
-    false
+    use std::io::Read;
+    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let mut magic = [0u8; 4];
+    file.read_exact(&mut magic).is_ok() && &magic == b"%PDF"
 }

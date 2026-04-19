@@ -12,7 +12,8 @@ identity:
   #   - "Alternative Name 1"
   #   - "Alternative Name 2"
 
-# LLM provider configuration (tried in order until one succeeds)
+# LLM provider configuration.
+# The first enabled entry is used. Override at the CLI with --provider.
 llm:
   providers:
     - name: ollama

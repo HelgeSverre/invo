@@ -1,5 +1,5 @@
 use super::provider::{LlmProvider, LlmRequest, LlmResponse};
-use crate::extraction::Invoice;
+use crate::config::ProviderName;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use ollama_rs::{
@@ -16,42 +16,40 @@ pub struct OllamaProvider {
 }
 
 impl OllamaProvider {
-    pub fn new(base_url: String, model: String) -> Self {
-        // Parse the URL to extract host and port
-        let url = url::Url::parse(&base_url).unwrap_or_else(|_| {
-            url::Url::parse("http://localhost:11434").unwrap()
-        });
+    pub fn new(base_url: &str, model: String) -> Result<Self> {
+        let url = url::Url::parse(base_url)
+            .with_context(|| format!("Invalid Ollama base_url: {base_url}"))?;
 
         let host = format!(
             "{}://{}",
             url.scheme(),
-            url.host_str().unwrap_or("localhost")
+            url.host_str()
+                .ok_or_else(|| anyhow!("Ollama base_url missing host: {base_url}"))?
         );
-        let port = url.port().unwrap_or(11434);
+        let port = url
+            .port_or_known_default()
+            .ok_or_else(|| anyhow!("Ollama base_url missing port: {base_url}"))?;
 
-        let client = Ollama::new(host, port);
-
-        Self { client, model }
+        Ok(Self {
+            client: Ollama::new(host, port),
+            model,
+        })
     }
 }
 
 #[async_trait]
 impl LlmProvider for OllamaProvider {
     fn name(&self) -> &str {
-        "ollama"
+        ProviderName::Ollama.as_str()
     }
 
     async fn complete(&self, request: LlmRequest) -> Result<LlmResponse> {
-        // Build the full prompt, including schema if provided
-        let schema_section = if let Some(schema) = &request.json_schema {
-            // Extract just the schema properties for a cleaner prompt
-            let schema_str = serde_json::to_string_pretty(schema).unwrap_or_default();
-            format!(
+        let schema_section = match &request.json_schema {
+            Some(schema) => format!(
                 "\n\nYou MUST respond with JSON matching this EXACT schema:\n```json\n{}\n```\n\nUse EXACTLY these field names. Do not invent your own field names.",
-                schema_str
-            )
-        } else {
-            String::new()
+                serde_json::to_string_pretty(schema).unwrap_or_default()
+            ),
+            None => String::new(),
         };
 
         let full_prompt = format!(
@@ -59,22 +57,23 @@ impl LlmProvider for OllamaProvider {
             request.system_prompt, schema_section, request.user_message
         );
 
-        // Create generation request with structured JSON schema
-        let gen_request = GenerationRequest::new(self.model.clone(), full_prompt)
-            .format(FormatType::StructuredJson(Box::new(
-                JsonStructure::new::<Invoice>(),
-            )));
+        let format = match request.json_schema {
+            Some(value) => match schemars::Schema::try_from(value) {
+                Ok(schema) => FormatType::StructuredJson(Box::new(JsonStructure::new_for_schema(schema))),
+                Err(e) => return Err(anyhow!("Invalid JSON schema: {e}")),
+            },
+            None => FormatType::Json,
+        };
 
-        // Send request
+        let gen_request = GenerationRequest::new(self.model.clone(), full_prompt).format(format);
+
         let response = self
             .client
             .generate(gen_request)
             .await
             .context("Failed to generate response from Ollama")?;
 
-        // Extract content
         let content = response.response.trim().to_string();
-
         if content.is_empty() {
             return Err(anyhow!("Empty response from Ollama"));
         }
@@ -82,7 +81,7 @@ impl LlmProvider for OllamaProvider {
         Ok(LlmResponse {
             content,
             model: self.model.clone(),
-            provider: "ollama".to_string(),
+            provider: ProviderName::Ollama.as_str().to_string(),
         })
     }
 }

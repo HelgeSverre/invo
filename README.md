@@ -2,6 +2,8 @@
 
 CLI tool to extract structured data from PDF receipts and invoices using LLMs.
 
+Runs locally by default via Ollama. Falls back to OpenAI or Anthropic if configured.
+
 ## Install
 
 ```bash

@@ -1,4 +1,5 @@
 use super::provider::{LlmProvider, LlmRequest, LlmResponse};
+use crate::config::ProviderName;
 use anyhow::{anyhow, Context, Result};
 use async_trait::async_trait;
 use reqwest::Client;
@@ -65,7 +66,7 @@ struct MessageResponse {
 #[async_trait]
 impl LlmProvider for OpenAIProvider {
     fn name(&self) -> &str {
-        "openai"
+        ProviderName::OpenAI.as_str()
     }
 
     async fn complete(&self, request: LlmRequest) -> Result<LlmResponse> {
@@ -80,10 +81,14 @@ impl LlmProvider for OpenAIProvider {
             },
         ];
 
-        // Build response format for structured output
         let response_format = request.json_schema.map(|schema| ResponseFormat {
             format_type: "json_schema".to_string(),
-            json_schema: Some(schema),
+            json_schema: Some(serde_json::json!({
+                "name": "extract_invoice",
+                "description": "Extract structured data from invoice/receipt text",
+                "strict": false,
+                "schema": schema,
+            })),
         });
 
         let chat_request = ChatCompletionRequest {
@@ -128,7 +133,7 @@ impl LlmProvider for OpenAIProvider {
         Ok(LlmResponse {
             content,
             model: chat_response.model,
-            provider: "openai".to_string(),
+            provider: ProviderName::OpenAI.as_str().to_string(),
         })
     }
 }

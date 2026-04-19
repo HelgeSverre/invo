@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
+pub const DEFAULT_OLLAMA_MODEL: &str = "qwen2.5:1.5b";
+
 /// Root configuration
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct Config {
@@ -106,21 +109,33 @@ impl Provider {
         Self {
             name: ProviderName::Ollama,
             enabled: true,
-            model: "qwen2.5:1.5b".to_string(),
-            base_url: Some("http://localhost:11434".to_string()),
+            model: DEFAULT_OLLAMA_MODEL.to_string(),
+            base_url: Some(DEFAULT_OLLAMA_URL.to_string()),
             model_path: None,
             api_key_env: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, clap::ValueEnum)]
 #[serde(rename_all = "lowercase")]
+#[clap(rename_all = "lower")]
 pub enum ProviderName {
     Ollama,
     OpenAI,
     Anthropic,
     Mistral,
+}
+
+impl ProviderName {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            ProviderName::Ollama => "ollama",
+            ProviderName::OpenAI => "openai",
+            ProviderName::Anthropic => "anthropic",
+            ProviderName::Mistral => "mistral",
+        }
+    }
 }
 
 /// Extraction settings

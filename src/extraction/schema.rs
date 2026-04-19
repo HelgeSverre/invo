@@ -126,7 +126,6 @@ pub struct ExtractionMeta {
     pub provider: String,
     pub model: String,
     pub ocr_used: bool,
-    pub confidence: f64,
     pub processing_time_ms: u64,
 }
 
@@ -190,8 +189,22 @@ mod option_date_format {
     }
 }
 
+/// Strip common currency symbols/codes and parse a numeric string.
+fn parse_loose_number(s: &str) -> Option<f64> {
+    let cleaned = s
+        .trim()
+        .replace(',', ".")
+        .replace(['$', '€', '£', '¥', '₹', ' '], "")
+        .replace("kr", "")
+        .replace("NOK", "")
+        .replace("USD", "")
+        .replace("EUR", "");
+    cleaned.parse::<f64>().ok()
+}
+
 /// Deserializer that accepts both f64 and string representations of numbers
 mod string_or_f64 {
+    use super::parse_loose_number;
     use serde::{self, Deserialize, Deserializer};
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<f64, D::Error>
@@ -207,26 +220,15 @@ mod string_or_f64 {
 
         match StringOrFloat::deserialize(deserializer)? {
             StringOrFloat::Float(f) => Ok(f),
-            StringOrFloat::String(s) => parse_number_string(&s)
+            StringOrFloat::String(s) => parse_loose_number(&s)
                 .ok_or_else(|| serde::de::Error::custom(format!("Invalid number: {}", s))),
         }
-    }
-
-    fn parse_number_string(s: &str) -> Option<f64> {
-        let cleaned = s
-            .trim()
-            .replace(',', ".")
-            .replace(['$', '€', '£', '¥', '₹', ' '], "")
-            .replace("kr", "")
-            .replace("NOK", "")
-            .replace("USD", "")
-            .replace("EUR", "");
-        cleaned.parse::<f64>().ok()
     }
 }
 
 /// Deserializer for Option<f64> that accepts both f64 and string representations
 mod option_string_or_f64 {
+    use super::parse_loose_number;
     use serde::{self, Deserialize, Deserializer};
 
     pub fn deserialize<'de, D>(deserializer: D) -> Result<Option<f64>, D::Error>
@@ -246,21 +248,9 @@ mod option_string_or_f64 {
             Some(StringOrFloat::Null) => Ok(None),
             Some(StringOrFloat::Float(f)) => Ok(Some(f)),
             Some(StringOrFloat::String(s)) if s.is_empty() => Ok(None),
-            Some(StringOrFloat::String(s)) => parse_number_string(&s)
+            Some(StringOrFloat::String(s)) => parse_loose_number(&s)
                 .map(Some)
                 .ok_or_else(|| serde::de::Error::custom(format!("Invalid number: {}", s))),
         }
-    }
-
-    fn parse_number_string(s: &str) -> Option<f64> {
-        let cleaned = s
-            .trim()
-            .replace(',', ".")
-            .replace(['$', '€', '£', '¥', '₹', ' '], "")
-            .replace("kr", "")
-            .replace("NOK", "")
-            .replace("USD", "")
-            .replace("EUR", "");
-        cleaned.parse::<f64>().ok()
     }
 }
