@@ -1,0 +1,282 @@
+[2026-01-07 01:04:30.514] === LLM Request for "samples/sourcegraph/Receipt-2012-2198.pdf" ===
+[2026-01-07 01:04:30.514] Provider: ollama
+[2026-01-07 01:05:08.390] === LLM Response ===
+{
+    "invoice_number": "P8ZVOH52",
+    "date_paid": "2025-12-03",
+    "user_id": "user_01K5Z5DCFWRDYAF6T",
+    "vendor": "Sourcegraph, Inc.",
+    "address_vendor": {
+        "street": "400 Montgomery Street",
+        "suite": "Suite 600",
+        "city": "San Francisco, California",
+        "state": "California",
+        "zip": "94104"
+    },
+    "billing_address": {
+        "email": "hebi.gel@sourcegraph.com",
+        "phone": "+1-650 273 5591"
+    },
+    "total_amount_paid": null,
+    "payment_method": "Visa - 9644",
+    "date_payment_method": "December 3, 2025",
+    "amount_paid_method": "2012-2198"
+}
+[2026-01-07 01:05:08.390] === PARSE ERROR ===
+missing field `invoice_date` at line 21 column 1
+
+Response was:
+{
+    "invoice_number": "P8ZVOH52",
+    "date_paid": "2025-12-03",
+    "user_id": "user_01K5Z5DCFWRDYAF6T",
+    "vendor": "Sourcegraph, Inc.",
+    "address_vendor": {
+        "street": "400 Montgomery Street",
+        "suite": "Suite 600",
+        "city": "San Francisco, California",
+        "state": "California",
+        "zip": "94104"
+    },
+    "billing_address": {
+        "email": "hebi.gel@sourcegraph.com",
+        "phone": "+1-650 273 5591"
+    },
+    "total_amount_paid": null,
+    "payment_method": "Visa - 9644",
+    "date_payment_method": "December 3, 2025",
+    "amount_paid_method": "2012-2198"
+}
+[2026-01-07 01:12:39.691] === LLM Request for "samples/sourcegraph/Receipt-2012-2198.pdf" ===
+[2026-01-07 01:12:39.691] Provider: ollama
+[2026-01-07 01:12:39.691] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 01:12:39.691] Text length: 853 chars
+[2026-01-07 01:13:27.567] === LLM Response ===
+{
+  "vendor": "Sourcegraph, Inc.",
+  "invoice_date": "2025-12-03",
+  "total_amount": 25.0,
+  "currency": "USD",
+  "invoice_number": "P8ZVOH52-0011",
+  "due_date": null,
+  "subtotal": 25.0,
+  "tax_amount": null,
+  "tax_rate": null,
+  "discount_amount": null,
+  "vendor_website": null,
+  "vendor_email": null,
+  "vendor_address": "400 Montgomery Street, San Francisco, CA 94104, United States",
+  "payment_method": "Visa",
+  "card_last_four": "27355916",
+  "items": [
+    {
+      "description": "Manual purchase for 2,500 Amp user credits",
+      "sku": null,
+      "quantity": 5,
+      "unit_price": 5.0,
+      "total": 25.0
+    }
+  ],
+  "category": null,
+  "description": "Manual purchase for 2,500 Amp user credits",
+  "buyer_name": null,
+  "confidence": 1.0
+}
+[2026-01-07 01:54:09.183] === LLM Request for "samples/random/ploi-invoice-2025-03-05-P2025-0097328.pdf" ===
+[2026-01-07 01:54:09.184] Provider: ollama
+[2026-01-07 01:54:09.184] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 01:54:09.184] Text length: 656 chars
+[2026-01-07 01:54:27.346] === LLM Response ===
+{
+  "vendor": "Ploi.io",
+  "invoice_date": "2025-03-05",
+  "total_amount": 30,
+  "currency": "EUR",
+  "items": [
+    {
+      "description": "Payment for plan Unlimited (subscription)",
+      "quantity": 1
+    },
+    {
+      "description": "Total",
+      "quantity": 1
+    }
+  ],
+  "confidence": 1.0
+}
+[2026-01-07 01:54:27.370] === LLM Request for "samples/random/ploi-invoice-2025-05-13-P2025-0103605.pdf" ===
+[2026-01-07 01:54:27.370] Provider: ollama
+[2026-01-07 01:54:27.370] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 01:54:27.370] Text length: 709 chars
+[2026-01-07 01:55:03.975] === LLM Response ===
+{
+  "vendor": "Liseth Solutions AS",
+  "invoice_date": "2025-05-13",
+  "total_amount": 0.29,
+  "currency": "EUR",
+  "invoice_number": null,
+  "due_date": null,
+  "subtotal": null,
+  "tax_amount": null,
+  "tax_rate": null,
+  "discount_amount": null,
+  "vendor_website": "https://ploi.io",
+  "vendor_email": null,
+  "vendor_address": "Amperestraat 16J, 3861NC Nijkerk, The Netherlands, VAT: NL866641658B01",
+  "payment_method": "Credit Card",
+  "card_last_four": null,
+  "items": [],
+  "category": null,
+  "description": "Card (mandate) verification - 1 month(s)",
+  "buyer_name": "Unknown buyer/customer",
+  "confidence": 0.95
+}
+[2026-01-07 01:55:04.001] === LLM Request for "samples/random/ploi-invoice-2025-11-13-P2025-0120828.pdf" ===
+[2026-01-07 01:55:04.001] Provider: ollama
+[2026-01-07 01:55:04.001] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 01:55:04.001] Text length: 725 chars
+[2026-01-07 01:58:41.566] === LLM Request for "samples/random/ploi-invoice-2025-05-13-P2025-0103605.pdf" ===
+[2026-01-07 01:58:41.566] Provider: ollama
+[2026-01-07 01:58:41.566] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 01:58:41.566] Text length: 709 chars
+[2026-01-07 01:59:18.937] === LLM Response ===
+{
+  "vendor": "Liseth Solutions AS",
+  "invoice_date": "2025-05-13",
+  "total_amount": 0.29,
+  "currency": "EUR",
+  "invoice_number": "P2025-0103605",
+  "due_date": null,
+  "subtotal": null,
+  "tax_amount": null,
+  "tax_rate": null,
+  "discount_amount": null,
+  "vendor_website": "https://ploi.io",
+  "vendor_email": null,
+  "vendor_address": "Amperestraat 16J, 3861NC Nijkerk, The Netherlands, VAT: NL866641658B01",
+  "payment_method": null,
+  "card_last_four": null,
+  "items": [],
+  "category": "Software",
+  "description": "Card (mandate) verification 1 month(s)",
+  "buyer_name": null,
+  "confidence": 0.94
+}
+[2026-01-07 02:01:18.305] === LLM Request for "samples/random/ploi-invoice-2025-05-13-P2025-0103605.pdf" ===
+[2026-01-07 02:01:18.306] Provider: ollama
+[2026-01-07 02:01:18.306] System prompt:
+You are an invoice/receipt data extraction assistant. Extract structured data from the provided document text.
+
+EXTRACTION RULES:
+1. Dates MUST be in YYYY-MM-DD format (e.g., 2025-01-15)
+2. Currency MUST be ISO 4217 3-letter code (USD, EUR, NOK, GBP, SEK, DKK, etc.)
+3. ALL numeric amounts MUST be JSON numbers, NOT strings (e.g., 25.00 not "25.00")
+4. Do NOT include currency symbols in amounts - just the number
+5. Extract ALL line items if visible
+6. Set confidence based on text clarity (0.0-1.0)
+7. If unsure about a field, set it to null rather than guess
+8. The vendor is the company that issued the invoice, NOT the buyer
+
+Extract the invoice data and respond with valid JSON matching the schema.
+[2026-01-07 02:01:18.306] Text length: 709 chars
+[2026-01-07 02:01:58.213] === LLM Response ===
+{
+  "vendor": "Liseth Solutions AS",
+  "invoice_date": "2025-05-13",
+  "total_amount": 0,
+  "currency": "EUR",
+  "invoice_number": null,
+  "due_date": null,
+  "subtotal": null,
+  "tax_amount": null,
+  "tax_rate": null,
+  "discount_amount": null,
+  "vendor_website": "https://ploi.io",
+  "vendor_email": null,
+  "vendor_address": null,
+  "payment_method": null,
+  "card_last_four": null,
+  "items": [
+    {
+      "description": "Card (mandate) verification",
+      "quantity": null,
+      "unit_price": null,
+      "total": null
+    },
+    {
+      "description": "Total €0,29",
+      "quantity": 1,
+      "unit_price": 0.29,
+      "total": 2.9
+    }
+  ],
+  "category": null,
+  "description": "Card (mandate) verification and Total €0,29",
+  "buyer_name": "Helge Sverre",
+  "confidence": 1.0
+}

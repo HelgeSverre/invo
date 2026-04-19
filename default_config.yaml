@@ -1,0 +1,79 @@
+# invo configuration file
+# Location: ~/.config/invo/config.yaml
+
+# Your identity - helps LLM distinguish you (buyer) from vendor (seller)
+identity:
+  # company: "Your Company Name"
+  # name: "Your Name"
+  # email: "your@email.com"
+  # address: "Your Address"
+  # vat_number: "Your VAT Number"
+  # aliases:
+  #   - "Alternative Name 1"
+  #   - "Alternative Name 2"
+
+# LLM provider configuration (tried in order until one succeeds)
+llm:
+  providers:
+    - name: ollama
+      enabled: true
+      model: "qwen2.5:1.5b"  # Best small model for structured JSON output
+      base_url: "http://localhost:11434"
+
+    # - name: openai
+    #   enabled: false
+    #   model: "gpt-4o-mini"
+    #   api_key_env: "OPENAI_API_KEY"
+
+    # - name: anthropic
+    #   enabled: false
+    #   model: "claude-sonnet-4-20250514"
+    #   api_key_env: "ANTHROPIC_API_KEY"
+
+  extraction:
+    temperature: 0.1
+    max_tokens: 2000
+    retry_attempts: 2
+
+# Known vendors - improves extraction accuracy
+vendors: []
+  # - name: "Google Workspace"
+  #   patterns:
+  #     - "Google Ireland Limited"
+  #     - "google.com/pay"
+  #   currency: "EUR"
+  #   category: "software"
+
+# Vendors to ignore (skip processing entirely)
+ignored_vendors: []
+  # - patterns:
+  #     - "Internal Transfer"
+  #   reason: "Not a receipt"
+
+# Output configuration
+output:
+  format: json
+  include_hash: true
+  schema_version: 1
+
+# Actions to run after successful extraction
+actions: []
+  # - type: copy
+  #   enabled: true
+  #   destination: "~/Documents/Receipts/{{year}}/{{month}}/"
+  #   filename: "{{date}}_{{vendor_slug}}_{{total}}.pdf"
+  #   create_dirs: true
+
+# Processing options
+processing:
+  parallelism: 4
+  ocr:
+    enabled: true
+    language: "eng"
+    dpi: 300
+  deduplication:
+    enabled: false
+
+# Logging
+logging:
+  level: info
