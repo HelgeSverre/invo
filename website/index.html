@@ -1,0 +1,343 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>invo — receipts in, structured JSON out</title>
+  <meta name="description" content="A Rust CLI that turns PDF receipts and invoices into structured JSON — vendor, date, total, line items. Runs locally by default via Ollama, with OpenAI and Anthropic as fallback.">
+  <link rel="icon" type="image/svg+xml" href="logo.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+  <nav class="nav">
+    <div class="container nav-inner">
+      <a class="brand" href="#">
+        <img src="logo.svg" alt="">
+        <span>inv<em>o</em></span>
+      </a>
+      <div class="nav-links">
+        <span class="version">v0.1.0</span>
+        <a class="nav-link" href="#quickstart">Quick-start</a>
+        <a class="nav-link" href="https://github.com/HelgeSverre/invo">GitHub →</a>
+      </div>
+    </div>
+  </nav>
+
+  <header class="hero">
+    <div class="container">
+      <h1>Read receipts,<br>not <em>paperwork.</em></h1>
+      <p class="hero-tagline">
+        A terminal command that turns a PDF into structured JSON —
+        <strong>vendor, date, total, line items.</strong>
+        Runs locally by default. No accounts. No upload. Your files stay on your machine.
+      </p>
+
+      <div class="install-block">
+        <span class="dollar">$</span>
+        <span id="cmd-install">cargo install --git https://github.com/HelgeSverre/invo</span>
+        <button class="copy-btn" data-copy="cmd-install" type="button">copy</button>
+      </div>
+
+      <p class="requirements">
+        macOS · Linux &nbsp;·&nbsp;
+        Rust <code>1.75+</code> &nbsp;·&nbsp;
+        Ollama <code>localhost:11434</code> &nbsp;·&nbsp;
+        or set <code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code>
+      </p>
+
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="#quickstart">Try it →</a>
+        <a class="btn btn-ghost" href="https://github.com/HelgeSverre/invo">GitHub</a>
+      </div>
+    </div>
+  </header>
+
+  <section class="transform" aria-label="What invo does">
+    <div class="container">
+      <div class="transform-grid">
+
+        <div class="pane">
+          <div class="pane-head">
+            <span class="pane-title">input · pdf</span>
+            <span class="pane-tag">2025.03.13 - Anthropic - API Credits.pdf</span>
+          </div>
+          <div class="receipt">
+            <div class="receipt-head">
+              <div class="vendor">Anthropic, PBC</div>
+              <div class="sub">548 Market St, PMB 90375 · San Francisco, CA</div>
+            </div>
+            <div class="receipt-row"><span>Invoice</span><span>#INV-2312-AC</span></div>
+            <div class="receipt-row"><span>Date</span><span>2025-03-13</span></div>
+            <div class="receipt-row"><span>Buyer</span><span>Liseth Solutions AS</span></div>
+            <br>
+            <div class="receipt-row item"><span>API credits — top-up</span><span>$100.00</span></div>
+            <div class="receipt-row item"><span>VAT (25%)</span><span>$25.00</span></div>
+            <div class="receipt-total"><span>Total</span><strong>$125.00 USD</strong></div>
+          </div>
+        </div>
+
+        <div class="arrow" aria-hidden="true">→</div>
+
+        <div class="pane code-pane">
+          <div class="pane-head">
+            <span class="pane-title">output · json</span>
+            <span class="pane-tag">invo receipt.pdf</span>
+          </div>
+<pre><span class="tok-punct">{</span>
+  <span class="tok-key">"vendor"</span><span class="tok-punct">:</span> <span class="tok-str">"Anthropic, PBC"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"invoice_date"</span><span class="tok-punct">:</span> <span class="tok-str">"2025-03-13"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"invoice_number"</span><span class="tok-punct">:</span> <span class="tok-str">"INV-2312-AC"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"total_amount"</span><span class="tok-punct">:</span> <span class="tok-num">125.00</span><span class="tok-punct">,</span>
+  <span class="tok-key">"subtotal"</span><span class="tok-punct">:</span> <span class="tok-num">100.00</span><span class="tok-punct">,</span>
+  <span class="tok-key">"tax_amount"</span><span class="tok-punct">:</span> <span class="tok-num">25.00</span><span class="tok-punct">,</span>
+  <span class="tok-key">"tax_rate"</span><span class="tok-punct">:</span> <span class="tok-num">0.25</span><span class="tok-punct">,</span>
+  <span class="tok-key">"currency"</span><span class="tok-punct">:</span> <span class="tok-str">"USD"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"buyer_name"</span><span class="tok-punct">:</span> <span class="tok-str">"Liseth Solutions AS"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"items"</span><span class="tok-punct">: [</span>
+    <span class="tok-punct">{</span>
+      <span class="tok-key">"description"</span><span class="tok-punct">:</span> <span class="tok-str">"API credits — top-up"</span><span class="tok-punct">,</span>
+      <span class="tok-key">"quantity"</span><span class="tok-punct">:</span> <span class="tok-num">1</span><span class="tok-punct">,</span>
+      <span class="tok-key">"total"</span><span class="tok-punct">:</span> <span class="tok-num">100.00</span>
+    <span class="tok-punct">}</span>
+  <span class="tok-punct">],</span>
+  <span class="tok-key">"category"</span><span class="tok-punct">:</span> <span class="tok-str">"software"</span><span class="tok-punct">,</span>
+  <span class="tok-key">"confidence"</span><span class="tok-punct">:</span> <span class="tok-num">0.94</span>
+<span class="tok-punct">}</span></pre>
+        </div>
+
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Why invo">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-eyebrow">Why invo</div>
+        <h2>Small, opinionated, <em>local-first.</em></h2>
+        <p>
+          Four decisions that make this different from sending your receipts to a web form
+          or wiring up a Zapier chain.
+        </p>
+      </div>
+
+      <div class="features">
+        <div class="feature">
+          <div class="feature-num">01 / LOCAL BY DEFAULT</div>
+          <h3>Your PDFs never leave your machine.</h3>
+          <p>
+            Ollama is the default provider. A 1.5B model on your laptop is good
+            enough for structured extraction from a clean receipt. No tokens
+            billed, no accounts, no upload.
+          </p>
+          <span class="chip">ollama</span>
+          <span class="chip">qwen2.5:1.5b</span>
+        </div>
+
+        <div class="feature">
+          <div class="feature-num">02 / PROVIDER CHAIN</div>
+          <h3>Fall back when local isn't enough.</h3>
+          <p>
+            Set <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>
+            and invo tries Ollama first, then the others in config order.
+            Per-run override via <code>--provider</code> when you know better.
+          </p>
+          <span class="chip">openai</span>
+          <span class="chip">anthropic</span>
+        </div>
+
+        <div class="feature">
+          <div class="feature-num">03 / STRUCTURED, TYPED</div>
+          <h3>A JSON schema, not a blob of text.</h3>
+          <p>
+            20+ fields — vendor, dates, ISO-4217 currency, tax breakdown,
+            line items with quantity and unit price, buyer identity match,
+            confidence. Numbers are numbers. Dates are YYYY-MM-DD.
+          </p>
+          <span class="chip">json</span>
+          <span class="chip">yaml</span>
+          <span class="chip">csv</span>
+        </div>
+
+        <div class="feature">
+          <div class="feature-num">04 / BATCH &amp; FILE</div>
+          <h3>Glob, parallelize, rename, archive.</h3>
+          <p>
+            Hand it <code>"receipts/**/*.pdf"</code> and it processes in
+            parallel via rayon. Post-extraction actions rename and file
+            the PDF into <code>{year}/{month}/{vendor}_{total}.pdf</code>.
+            Deduped by SHA-256.
+          </p>
+          <span class="chip">glob</span>
+          <span class="chip">rayon</span>
+          <span class="chip">sha-256</span>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="quickstart" aria-label="Quick-start">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-eyebrow">Quick-start</div>
+        <h2>Four shapes of <em>the same command.</em></h2>
+        <p>
+          A single binary. One positional argument or a glob. Everything else has a default.
+        </p>
+      </div>
+
+      <div class="tabs" role="tablist">
+        <div class="tab-bar">
+          <button class="tab-btn active" data-tab="first">First run</button>
+          <button class="tab-btn" data-tab="batch">Batch (glob)</button>
+          <button class="tab-btn" data-tab="format">Change format</button>
+          <button class="tab-btn" data-tab="provider">Override provider</button>
+        </div>
+
+        <div class="tab-panel active" data-tab="first">
+          <button class="copy-btn tab-copy" data-copy="snippet-first">copy</button>
+<pre id="snippet-first"><span class="tok-prompt">$</span> <span class="tok-cmd">invo init</span>
+<span class="tok-cmt"># Created config file at ~/.config/invo/config.yaml</span>
+
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo receipt.pdf</span>
+<span class="tok-cmt"># Processing 1 file(s) · ollama (qwen2.5:1.5b) · 1.4s</span>
+<span class="tok-cmt"># → prints structured JSON to stdout</span></pre>
+        </div>
+
+        <div class="tab-panel" data-tab="batch">
+          <button class="copy-btn tab-copy" data-copy="snippet-batch">copy</button>
+<pre id="snippet-batch"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span class="tok-str">"receipts/2025/**/*.pdf"</span>
+<span class="tok-cmt"># Expands glob, processes each PDF in parallel via rayon.</span>
+<span class="tok-cmt"># Per-file JSON to stdout; duplicates skipped via SHA-256.</span>
+
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span class="tok-str">"receipts/2025/**/*.pdf"</span> <span class="tok-flag">| jq</span> <span class="tok-str">'.invoice.total_amount'</span> <span class="tok-flag">| awk</span> <span class="tok-str">'{s+=$1} END {print s}'</span>
+<span class="tok-cmt"># Sum totals across a year of receipts. No spreadsheet.</span></pre>
+        </div>
+
+        <div class="tab-panel" data-tab="format">
+          <button class="copy-btn tab-copy" data-copy="snippet-format">copy</button>
+<pre id="snippet-format"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--format</span> yaml
+<span class="tok-cmt"># Human-readable YAML instead of JSON</span>
+
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--format</span> csv
+<span class="tok-cmt"># Header + row: vendor,date,total,currency,invoice_number</span>
+<span class="tok-cmt"># Pipe-friendly for spreadsheets, ledgers, or hledger imports.</span></pre>
+        </div>
+
+        <div class="tab-panel" data-tab="provider">
+          <button class="copy-btn tab-copy" data-copy="snippet-provider">copy</button>
+<pre id="snippet-provider"><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--provider</span> anthropic
+<span class="tok-cmt"># Skip the fallback chain — force Claude for this run.</span>
+
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--provider</span> openai <span class="tok-flag">-vv</span>
+<span class="tok-cmt"># Trace logs: prompt, raw response, parsed schema, timing.</span></pre>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section aria-label="Configuration">
+    <div class="container">
+      <div class="section-head">
+        <div class="section-eyebrow">Configuration</div>
+        <h2>One YAML, <em>teach it your vendors.</em></h2>
+        <p>
+          Known vendors improve extraction accuracy and let invo apply per-vendor defaults
+          (currency, category). Post-extraction actions file the PDF into a tidy tree.
+        </p>
+      </div>
+
+      <div class="config-block">
+        <div class="pane-head">
+          <span class="pane-title">~/.config/invo/config.yaml</span>
+          <button class="copy-btn" data-copy="config-sample">copy</button>
+        </div>
+<pre id="config-sample"><span class="tok-key">llm</span>:
+  <span class="tok-key">providers</span>:
+    - <span class="tok-key">name</span>: ollama
+      <span class="tok-key">model</span>: <span class="tok-str">"qwen2.5:1.5b"</span>
+      <span class="tok-key">enabled</span>: true
+    - <span class="tok-key">name</span>: anthropic
+      <span class="tok-key">model</span>: <span class="tok-str">"claude-sonnet-4"</span>
+      <span class="tok-key">api_key_env</span>: <span class="tok-str">"ANTHROPIC_API_KEY"</span>
+      <span class="tok-key">enabled</span>: true
+
+<span class="tok-key">vendors</span>:
+  - <span class="tok-key">name</span>: <span class="tok-str">"Google Workspace"</span>
+    <span class="tok-key">patterns</span>: [<span class="tok-str">"Google Ireland Limited"</span>, <span class="tok-str">"google.com/pay"</span>]
+    <span class="tok-key">currency</span>: <span class="tok-str">"EUR"</span>
+    <span class="tok-key">category</span>: <span class="tok-str">"software"</span>
+
+<span class="tok-key">actions</span>:
+  - <span class="tok-key">type</span>: copy
+    <span class="tok-key">destination</span>: <span class="tok-str">"~/Documents/Receipts/{{year}}/{{month}}/"</span>
+    <span class="tok-key">filename</span>: <span class="tok-str">"{{date}}_{{vendor_slug}}_{{total}}.pdf"</span>
+    <span class="tok-key">create_dirs</span>: true
+</pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta">
+    <div class="container">
+      <h2>Your receipts are already on <em>your disk.</em></h2>
+      <p>
+        A clone, a <code>cargo install</code>, and a working Ollama is everything you need.
+      </p>
+      <div class="hero-cta">
+        <a class="btn btn-primary" href="https://github.com/HelgeSverre/invo">Get invo →</a>
+        <a class="btn btn-ghost" href="https://github.com/HelgeSverre/invo/blob/master/README.md">Read the docs</a>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <div class="container" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+      <div class="footer-brand">
+        <img src="logo.svg" alt="">
+        <span>invo</span>
+      </div>
+      <div class="footer-meta">
+        <a href="https://github.com/HelgeSverre/invo/blob/master/LICENSE">MIT</a>
+        · <a href="https://github.com/HelgeSverre/invo">github.com/HelgeSverre/invo</a>
+        · by <a href="https://helgesverre.com">Helge Sverre</a>
+      </div>
+    </div>
+  </footer>
+
+  <script>
+    // Click-to-copy on every .copy-btn
+    document.querySelectorAll('.copy-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const targetId = btn.getAttribute('data-copy');
+        const node = document.getElementById(targetId);
+        if (!node) return;
+        const text = node.innerText;
+        navigator.clipboard.writeText(text).then(() => {
+          const original = btn.textContent;
+          btn.textContent = 'copied';
+          btn.classList.add('copied');
+          setTimeout(() => {
+            btn.textContent = original;
+            btn.classList.remove('copied');
+          }, 1400);
+        });
+      });
+    });
+
+    // Tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tab = btn.getAttribute('data-tab');
+        btn.parentElement.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const tabs = btn.closest('.tabs');
+        tabs.querySelectorAll('.tab-panel').forEach(p => {
+          p.classList.toggle('active', p.getAttribute('data-tab') === tab);
+        });
+      });
+    });
+  </script>
+
+</body>
+</html>
