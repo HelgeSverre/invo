@@ -4,64 +4,68 @@
 
 :root {
   /* ── Brand ─────────────────────────────────────────────── */
-  --brand-primary:        #F5CE47;  /* warm yellow */
-  --brand-primary-ink:    #C9A530;  /* deeper for hovers */
-  --brand-primary-fade:   rgba(245, 206, 71, 0.10);
+  --brand-primary: #f5ce47; /* warm yellow */
+  --brand-primary-ink: #c9a530; /* deeper for hovers */
+  --brand-primary-fade: rgba(245, 206, 71, 0.1);
 
-  --brand-accent:         #FFF3C4;  /* pale cream — rare focal */
-  --brand-accent-ink:     #E8D89A;
+  --brand-accent: #fff3c4; /* pale cream — rare focal */
+  --brand-accent-ink: #e8d89a;
 
   /* ── Graphite neutrals (faintly warm, non-Tailwind) ───── */
-  --n-50:  #F5F2EA;
-  --n-100: #EAE7DE;
-  --n-200: #C9C4B8;
-  --n-300: #9E9A8E;
-  --n-400: #78756B;  /* muted */
-  --n-500: #55534B;
-  --n-600: #36342F;
-  --n-700: #22201C;
-  --n-800: #15140F;  /* surface */
-  --n-900: #0C0B07;  /* page bg — graphite */
-  --n-950: #060503;  /* deepest */
+  --n-50: #f5f2ea;
+  --n-100: #eae7de;
+  --n-200: #c9c4b8;
+  --n-300: #9e9a8e;
+  --n-400: #78756b; /* muted */
+  --n-500: #55534b;
+  --n-600: #36342f;
+  --n-700: #22201c;
+  --n-800: #15140f; /* surface */
+  --n-900: #0c0b07; /* page bg — graphite */
+  --n-950: #060503; /* deepest */
 
   /* ── Semantic aliases ─────────────────────────────────── */
-  --bg:           var(--n-900);
-  --bg-soft:      var(--n-950);
-  --surface:      var(--n-800);
-  --surface-alt:  var(--n-700);
-  --border:       var(--n-700);
-  --border-soft:  var(--n-800);
+  --bg: var(--n-900);
+  --bg-soft: var(--n-950);
+  --surface: var(--n-800);
+  --surface-alt: var(--n-700);
+  --border: var(--n-700);
+  --border-soft: var(--n-800);
 
-  --text:         var(--n-100);
-  --text-muted:   var(--n-400);
+  --text: var(--n-100);
+  --text-muted: var(--n-400);
   --text-bright: var(--n-50);
-  --text-dim:     var(--n-500);
+  --text-dim: var(--n-500);
 
-  --accent:       var(--brand-primary);
-  --accent-dim:   var(--brand-primary-ink);
-  --accent-fade:  var(--brand-primary-fade);
-  --warm:         var(--brand-accent);
+  --accent: var(--brand-primary);
+  --accent-dim: var(--brand-primary-ink);
+  --accent-fade: var(--brand-primary-fade);
+  --warm: var(--brand-accent);
 
   /* ── Type — sans-serif throughout ─────────────────────── */
-  --font-display: "Inter", ui-sans-serif, -apple-system, "SF Pro Display", system-ui, sans-serif;
-  --font-body:    "Inter", ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
-  --font-mono:    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-display:
+    "Inter", ui-sans-serif, -apple-system, "SF Pro Display", system-ui,
+    sans-serif;
+  --font-body:
+    "Inter", ui-sans-serif, -apple-system, "SF Pro Text", system-ui, sans-serif;
+  --font-mono:
+    "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 
   /* ── Scale (modular, 1.25 ratio) ──────────────────────── */
-  --text-xs:   0.75rem;
-  --text-sm:   0.8125rem;
+  --text-xs: 0.75rem;
+  --text-sm: 0.8125rem;
   --text-base: 0.9375rem;
-  --text-lg:   1.125rem;
-  --text-xl:   1.5rem;
-  --text-2xl:  2rem;
-  --text-3xl:  2.75rem;
-  --text-4xl:  3.5rem;
-  --text-5xl:  4.5rem;
+  --text-lg: 1.125rem;
+  --text-xl: 1.5rem;
+  --text-2xl: 2rem;
+  --text-3xl: 2.75rem;
+  --text-4xl: 3.5rem;
+  --text-5xl: 4.5rem;
 
   /* ── Radii + motion ───────────────────────────────────── */
   --r-sm: 4px;
   --r-md: 6px;
   --r-lg: 10px;
   --r-xl: 16px;
-  --ease: cubic-bezier(.2, .7, .2, 1);
+  --ease: cubic-bezier(0.2, 0.7, 0.2, 1);
 }
