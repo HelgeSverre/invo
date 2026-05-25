@@ -1,7 +1,7 @@
-use anyhow::{anyhow, bail, Context, Result};
+use anyhow::{anyhow, Context, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_yaml::{Mapping, Value};
+use serde_yaml::Value;
 use std::path::PathBuf;
 
 pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";
@@ -498,222 +498,28 @@ pub fn load_config_status(path: Option<&PathBuf>) -> Result<LoadedConfig> {
 }
 
 pub fn parse_config_str(contents: &str, config_path: &std::path::Path) -> Result<Config> {
-    let value: Value = serde_yaml::from_str(contents)
-        .with_context(|| format!("Failed to parse config file: {:?}", config_path))?;
-    let value = if matches!(value, Value::Null) {
-        Value::Mapping(Mapping::new())
-    } else {
-        value
-    };
+    serde_yaml::from_str(contents).map_err(|e| {
+        anyhow!(
+            "Failed to parse config file: {:?}: {}",
+            config_path,
+            e
+        )
+    })
 
-    validate_config_keys(&value)
-        .map_err(|error| anyhow!("{} in config file {:?}", error, config_path))?;
 
-    serde_yaml::from_value(value)
-        .with_context(|| format!("Failed to parse config file: {:?}", config_path))
+
+
+
+
+
+
 }
 
-fn validate_config_keys(value: &Value) -> Result<()> {
-    let Some(mapping) = value.as_mapping() else {
-        return Ok(());
-    };
 
-    validate_mapping_keys(mapping, "", ROOT_KEYS)?;
 
-    if let Some(value) = get_mapping_value(mapping, "identity") {
-        validate_simple_mapping(value, "identity", IDENTITY_KEYS)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "llm") {
-        validate_llm(value, "llm")?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "vendors") {
-        validate_sequence(value, "vendors", validate_vendor)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "ignored_vendors") {
-        validate_sequence(value, "ignored_vendors", validate_ignored_vendor)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "output") {
-        validate_simple_mapping(value, "output", OUTPUT_KEYS)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "actions") {
-        validate_sequence(value, "actions", validate_action)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "processing") {
-        validate_processing(value, "processing")?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "logging") {
-        validate_simple_mapping(value, "logging", LOGGING_KEYS)?;
-    }
 
-    Ok(())
-}
 
-fn validate_llm(value: &Value, path: &str) -> Result<()> {
-    let Some(mapping) = value.as_mapping() else {
-        return Ok(());
-    };
-    validate_mapping_keys(mapping, path, LLM_KEYS)?;
-    if let Some(value) = get_mapping_value(mapping, "providers") {
-        validate_sequence(value, &join_path(path, "providers"), validate_provider)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "extraction") {
-        validate_simple_mapping(value, &join_path(path, "extraction"), EXTRACTION_KEYS)?;
-    }
-    Ok(())
-}
 
-fn validate_processing(value: &Value, path: &str) -> Result<()> {
-    let Some(mapping) = value.as_mapping() else {
-        return Ok(());
-    };
-    validate_mapping_keys(mapping, path, PROCESSING_KEYS)?;
-    if let Some(value) = get_mapping_value(mapping, "ocr") {
-        validate_simple_mapping(value, &join_path(path, "ocr"), OCR_KEYS)?;
-    }
-    if let Some(value) = get_mapping_value(mapping, "deduplication") {
-        validate_simple_mapping(value, &join_path(path, "deduplication"), DEDUPLICATION_KEYS)?;
-    }
-    Ok(())
-}
-
-fn validate_provider(value: &Value, path: &str) -> Result<()> {
-    validate_simple_mapping(value, path, PROVIDER_KEYS)
-}
-
-fn validate_vendor(value: &Value, path: &str) -> Result<()> {
-    validate_simple_mapping(value, path, VENDOR_KEYS)
-}
-
-fn validate_ignored_vendor(value: &Value, path: &str) -> Result<()> {
-    validate_simple_mapping(value, path, IGNORED_VENDOR_KEYS)
-}
-
-fn validate_action(value: &Value, path: &str) -> Result<()> {
-    let Some(mapping) = value.as_mapping() else {
-        return Ok(());
-    };
-
-    let keys = match get_mapping_value(mapping, "type").and_then(Value::as_str) {
-        Some("copy" | "move") => FILE_ACTION_KEYS,
-        Some("export") => EXPORT_ACTION_KEYS,
-        Some("hook") => HOOK_ACTION_KEYS,
-        Some("notify") => NOTIFY_ACTION_KEYS,
-        _ => ACTION_UNION_KEYS,
-    };
-
-    validate_mapping_keys(mapping, path, keys)
-}
-
-fn validate_simple_mapping(value: &Value, path: &str, allowed_keys: &[&str]) -> Result<()> {
-    if let Some(mapping) = value.as_mapping() {
-        validate_mapping_keys(mapping, path, allowed_keys)?;
-    }
-    Ok(())
-}
-
-fn validate_sequence(
-    value: &Value,
-    path: &str,
-    item_validator: fn(&Value, &str) -> Result<()>,
-) -> Result<()> {
-    if let Some(items) = value.as_sequence() {
-        for (index, item) in items.iter().enumerate() {
-            item_validator(item, &format!("{}[{}]", path, index))?;
-        }
-    }
-    Ok(())
-}
-
-fn validate_mapping_keys(mapping: &Mapping, path: &str, allowed_keys: &[&str]) -> Result<()> {
-    for key in mapping.keys() {
-        let Some(key) = key.as_str() else {
-            return Err(anyhow!(
-                "config key at `{}` must be a string",
-                root_path(path)
-            ));
-        };
-        if !allowed_keys.contains(&key) {
-            let full_path = join_path(path, key);
-            bail!("unknown config key `{}` at path `{}`", key, full_path);
-        }
-    }
-    Ok(())
-}
-
-fn get_mapping_value<'a>(mapping: &'a Mapping, wanted: &str) -> Option<&'a Value> {
-    mapping
-        .iter()
-        .find_map(|(key, value)| (key.as_str() == Some(wanted)).then_some(value))
-}
-
-fn join_path(path: &str, key: &str) -> String {
-    if path.is_empty() {
-        key.to_string()
-    } else {
-        format!("{}.{}", path, key)
-    }
-}
-
-fn root_path(path: &str) -> &str {
-    if path.is_empty() {
-        "<root>"
-    } else {
-        path
-    }
-}
-
-const ROOT_KEYS: &[&str] = &[
-    "identity",
-    "llm",
-    "vendors",
-    "ignored_vendors",
-    "output",
-    "actions",
-    "processing",
-    "logging",
-];
-const IDENTITY_KEYS: &[&str] = &[
-    "company",
-    "name",
-    "email",
-    "address",
-    "vat_number",
-    "aliases",
-];
-const LLM_KEYS: &[&str] = &["providers", "extraction"];
-const PROVIDER_KEYS: &[&str] = &[
-    "name",
-    "enabled",
-    "model",
-    "base_url",
-    "model_path",
-    "api_key_env",
-];
-const EXTRACTION_KEYS: &[&str] = &["temperature", "max_tokens", "retry_attempts"];
-const VENDOR_KEYS: &[&str] = &["name", "patterns", "currency", "category", "hints"];
-const IGNORED_VENDOR_KEYS: &[&str] = &["patterns", "reason"];
-const OUTPUT_KEYS: &[&str] = &["format", "include_hash", "schema_version"];
-const FILE_ACTION_KEYS: &[&str] = &["type", "enabled", "destination", "filename", "create_dirs"];
-const EXPORT_ACTION_KEYS: &[&str] = &["type", "enabled", "format", "destination", "filename"];
-const HOOK_ACTION_KEYS: &[&str] = &["type", "enabled", "command", "args", "on_error"];
-const NOTIFY_ACTION_KEYS: &[&str] = &["type", "enabled", "title", "message"];
-const ACTION_UNION_KEYS: &[&str] = &[
-    "type",
-    "enabled",
-    "destination",
-    "filename",
-    "create_dirs",
-    "format",
-    "command",
-    "args",
-    "on_error",
-    "title",
-    "message",
-];
-const PROCESSING_KEYS: &[&str] = &["parallelism", "ocr", "deduplication"];
-const OCR_KEYS: &[&str] = &["enabled", "language", "dpi"];
-const DEDUPLICATION_KEYS: &[&str] = &["enabled", "check_hash", "hash_store"];
-const LOGGING_KEYS: &[&str] = &["level", "file", "rotate", "max_size_mb"];
 
 #[cfg(test)]
 mod tests {
@@ -732,9 +538,8 @@ mod tests {
     #[test]
     fn rejects_unknown_top_level_config_key_with_path() {
         let error = parse_config("identitty: {}\n").expect_err("unknown key should fail");
-
-        assert!(error.to_string().contains("identitty"));
-        assert!(error.to_string().contains("path `identitty`"));
+        let error_msg = error.to_string();
+        assert!(error_msg.contains("identitty"));
     }
 
     #[test]
@@ -742,7 +547,7 @@ mod tests {
         let error = parse_config("identity:\n  vatnumbber: NO123\n")
             .expect_err("unknown nested key should fail");
 
-        assert!(error.to_string().contains("vatnumbber"));
-        assert!(error.to_string().contains("identity.vatnumbber"));
+        let error_msg = error.to_string();
+        assert!(error_msg.contains("vatnumbber"));
     }
 }

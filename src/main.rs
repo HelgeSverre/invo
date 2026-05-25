@@ -6,7 +6,8 @@ mod pdf;
 mod prompt;
 
 use anyhow::{anyhow, bail, Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{CommandFactory, Parser, Subcommand};
+use clap_complete::{generate, Shell};
 use serde::Serialize;
 use serde_yaml::{Mapping, Value};
 use std::path::{Path, PathBuf};
@@ -92,6 +93,16 @@ enum Commands {
         after_help = "Examples:\n  invo agent-context --json"
     )]
     AgentContext,
+
+    /// Generate shell completions
+    #[command(
+        after_help = "Examples:\n  invo completions --shell zsh > /usr/local/share/zsh/site-functions/_invo\n  invo completions --shell bash > /etc/bash_completion.d/invo\n  invo completions --shell fish > ~/.config/fish/completions/invo.fish"
+    )]
+    Completions {
+        /// Shell to generate completions for
+        #[arg(value_enum, long)]
+        shell: Shell,
+    },
 }
 
 #[derive(Subcommand)]
@@ -182,6 +193,7 @@ fn handle_command(command: &Commands, cli: &Cli) -> Result<()> {
         Commands::Init { force } => handle_init(cli, *force),
         Commands::Config { command } => handle_config_command(command, cli),
         Commands::AgentContext => handle_agent_context(cli),
+        Commands::Completions { shell } => handle_completions(*shell),
     }
 }
 
@@ -372,6 +384,16 @@ fn handle_agent_context(cli: &Cli) -> Result<()> {
         );
     }
 
+    Ok(())
+}
+
+fn handle_completions(shell: Shell) -> Result<()> {
+    use std::io;
+    
+    let mut cmd = Cli::command();
+    let name = cmd.get_name().to_string();
+    generate(shell, &mut cmd, name, &mut io::stdout());
+    
     Ok(())
 }
 
@@ -787,7 +809,7 @@ mod tests {
     #[test]
     fn expand_inputs_accepts_pdf_paths() {
         let path = PathBuf::from("samples/claude/Receipt-2238-2456-7832.pdf");
-        let inputs = expand_inputs(&[path.clone()]).expect("sample pdf should expand");
+        let inputs = expand_inputs(std::slice::from_ref(&path)).expect("sample pdf should expand");
 
         assert_eq!(inputs.len(), 1);
         assert_eq!(inputs[0].path, path.to_string_lossy().to_string());

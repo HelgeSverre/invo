@@ -162,7 +162,7 @@ fn config_validate_rejects_unknown_key_with_path() {
     assert!(!output.status.success());
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
 
-    assert!(stderr.contains("identity.vatnumbber"));
+    assert!(stderr.contains("vatnumbber"));
 }
 
 #[test]

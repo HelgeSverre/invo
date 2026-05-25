@@ -3,7 +3,7 @@ use crate::invoice::Invoice;
 use anyhow::{anyhow, Context, Result};
 use rig_core::client::{CompletionClient, Nothing};
 use rig_core::completion::{AssistantContent, CompletionModel};
-use rig_core::providers::{ollama, openai};
+use rig_core::providers::{anthropic, mistral, ollama, openai};
 
 pub struct LlmExtraction {
     pub invoice: Invoice,
@@ -57,11 +57,17 @@ pub async fn extract_invoice_data(
             let model = client.completion_model(&provider_config.model);
             complete_invoice(model, config, &system_prompt, &user_message).await?
         }
-        ProviderName::Anthropic | ProviderName::Mistral => {
-            return Err(anyhow!(
-                "Provider {:?} is not yet implemented",
-                provider_config.name
-            ));
+        ProviderName::Anthropic => {
+            let api_key = get_api_key(provider_config.name, &provider_config.api_key_env)?;
+            let client = build_anthropic_client(provider_config, api_key)?;
+            let model = client.completion_model(&provider_config.model);
+            complete_invoice(model, config, &system_prompt, &user_message).await?
+        }
+        ProviderName::Mistral => {
+            let api_key = get_api_key(provider_config.name, &provider_config.api_key_env)?;
+            let client = build_mistral_client(provider_config, api_key)?;
+            let model = client.completion_model(&provider_config.model);
+            complete_invoice(model, config, &system_prompt, &user_message).await?
         }
     };
 
@@ -73,14 +79,41 @@ pub async fn extract_invoice_data(
 }
 
 fn build_ollama_client(provider_config: &Provider) -> Result<ollama::Client> {
-    let base_url = provider_config
-        .base_url
-        .as_deref()
-        .unwrap_or(DEFAULT_OLLAMA_URL);
-
     Ok(ollama::Client::builder()
         .api_key(Nothing)
-        .base_url(base_url)
+        .base_url(
+            provider_config
+                .base_url
+                .as_deref()
+                .unwrap_or(DEFAULT_OLLAMA_URL),
+        )
+        .build()?)
+}
+
+fn build_anthropic_client(
+    provider_config: &Provider,
+    api_key: String,
+) -> Result<anthropic::Client> {
+    Ok(anthropic::Client::builder()
+        .api_key(api_key)
+        .base_url(
+            provider_config
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.anthropic.com"),
+        )
+        .build()?)
+}
+
+fn build_mistral_client(provider_config: &Provider, api_key: String) -> Result<mistral::Client> {
+    Ok(mistral::Client::builder()
+        .api_key(api_key)
+        .base_url(
+            provider_config
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.mistral.ai"),
+        )
         .build()?)
 }
 
@@ -159,10 +192,18 @@ fn assistant_text(choice: rig_core::OneOrMany<AssistantContent>) -> Result<Strin
 }
 
 fn get_api_key(provider_name: ProviderName, env_var: &Option<String>) -> Result<String> {
+    let example_key = match provider_name {
+        ProviderName::OpenAI => "OPENAI_API_KEY",
+        ProviderName::Anthropic => "ANTHROPIC_API_KEY",
+        ProviderName::Mistral => "MISTRAL_API_KEY",
+        ProviderName::Ollama => "OLLAMA_API_KEY",
+    };
+
     let var_name = env_var.as_ref().ok_or_else(|| {
         anyhow!(
-            "{} provider config is missing llm.providers[].api_key_env (for example OPENAI_API_KEY)",
-            provider_name
+            "{} provider config is missing llm.providers[].api_key_env (for example {})",
+            provider_name,
+            example_key
         )
     })?;
 
@@ -341,5 +382,100 @@ mod tests {
             .expect("second attempt should succeed");
 
         assert_eq!(model.request_count(), 2);
+    }
+
+    #[test]
+    fn requires_api_key_for_anthropic() {
+        let error = get_api_key(ProviderName::Anthropic, &None)
+            .expect_err("missing env var name should fail");
+
+        assert!(error.to_string().contains("llm.providers[].api_key_env"));
+        assert!(error.to_string().contains("ANTHROPIC_API_KEY"));
+    }
+
+    #[test]
+    fn requires_api_key_for_mistral() {
+        let error = get_api_key(ProviderName::Mistral, &None)
+            .expect_err("missing env var name should fail");
+
+        assert!(error.to_string().contains("llm.providers[].api_key_env"));
+        assert!(error.to_string().contains("MISTRAL_API_KEY"));
+    }
+
+    #[test]
+    fn provider_names_display_correctly() {
+        assert_eq!(ProviderName::Anthropic.as_str(), "anthropic");
+        assert_eq!(ProviderName::Mistral.as_str(), "mistral");
+    }
+
+    #[test]
+    fn ollama_uses_default_base_url_when_not_configured() {
+        let provider = Provider {
+            name: ProviderName::Ollama,
+            enabled: true,
+            model: "qwen:7b".to_string(),
+            base_url: None,
+            model_path: None,
+            api_key_env: None,
+        };
+
+        let client = build_ollama_client(&provider).expect("should build client");
+        // Default URL is set in the builder, we can't easily inspect it but we know it works
+        assert!(client.base_url().contains("localhost:11434"));
+    }
+
+    #[test]
+    fn ollama_uses_configured_base_url() {
+        let provider = Provider {
+            name: ProviderName::Ollama,
+            enabled: true,
+            model: "qwen:7b".to_string(),
+            base_url: Some("http://custom-ollama:11434".to_string()),
+            model_path: None,
+            api_key_env: None,
+        };
+
+        let client = build_ollama_client(&provider).expect("should build client");
+        assert!(client.base_url().contains("custom-ollama"));
+    }
+
+    #[tokio::test]
+    async fn anthropic_provider_can_be_selected() {
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![
+                    provider(ProviderName::Anthropic, true, "claude-3-opus-20240229"),
+                    provider(ProviderName::OpenAI, true, "gpt-4"),
+                ],
+                extraction: ExtractionSettings::default(),
+            },
+            ..Config::default()
+        };
+
+        let selected = select_provider_config(&config, Some(ProviderName::Anthropic))
+            .expect("anthropic provider should be selected");
+
+        assert_eq!(selected.name, ProviderName::Anthropic);
+        assert_eq!(selected.model, "claude-3-opus-20240229");
+    }
+
+    #[tokio::test]
+    async fn mistral_provider_can_be_selected() {
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![
+                    provider(ProviderName::Mistral, true, "mistral-large-latest"),
+                    provider(ProviderName::OpenAI, true, "gpt-4"),
+                ],
+                extraction: ExtractionSettings::default(),
+            },
+            ..Config::default()
+        };
+
+        let selected = select_provider_config(&config, Some(ProviderName::Mistral))
+            .expect("mistral provider should be selected");
+
+        assert_eq!(selected.name, ProviderName::Mistral);
+        assert_eq!(selected.model, "mistral-large-latest");
     }
 }

@@ -213,14 +213,49 @@ See [`config.yaml`](./config.yaml) in the repo root for the active starter confi
 
 ## Providers
 
-| Provider | Status | Default model | Auth |
-| -------- | ------ | ------------- | ---- |
-| `ollama` | **Working**, default | `qwen2.5:1.5b` | none (local at `http://localhost:11434`) |
-| `openai` | **Working** | user-set in config | `OPENAI_API_KEY` |
-| `anthropic` | Not implemented | — | — |
-| `mistral` | Not implemented | — | — |
+| Provider | Status | Default model | Auth | Base URL |
+| -------- | ------ | ------------- | ---- | -------- |
+| `ollama` | **Working**, default | `qwen2.5:1.5b` | none | `http://localhost:11434` |
+| `openai` | **Working** | user-set in config | `OPENAI_API_KEY` | `https://api.openai.com` |
+| `anthropic` | **Working** | user-set in config | `ANTHROPIC_API_KEY` | `https://api.anthropic.com` |
+| `mistral` | **Working** | user-set in config | `MISTRAL_API_KEY` | `https://api.mistral.ai` |
 
 invo uses Rig-backed completion providers. It selects the first provider with `enabled: true` in config. Override per-run with `--provider <name>` to select any configured provider entry by name, even if that entry has `enabled: false`. The override does not invent missing provider settings: for OpenAI, the selected provider still needs `model` and `api_key_env`, and the named environment variable must be set. If you force an unimplemented provider, invo errors instead of silently picking another.
+
+### Provider Configuration
+
+Each provider supports the following configuration fields:
+
+- `name`: Provider identifier (`ollama`, `openai`, `anthropic`, `mistral`)
+- `enabled`: Whether this provider is active by default
+- `model`: Model name to use
+- `base_url`: Optional custom base URL (overrides provider defaults)
+- `api_key_env`: Environment variable name for API key (required for cloud providers)
+
+### Base URL Support
+
+All providers support custom `base_url` configuration:
+
+```yaml
+llm:
+  providers:
+    - name: anthropic
+      enabled: true
+      model: claude-3-opus-20240229
+      base_url: "https://custom-anthropic-proxy.example.com"
+      api_key_env: ANTHROPIC_API_KEY
+    - name: mistral
+      enabled: false
+      model: mistral-large-latest
+      base_url: "https://mistral-local:8080"
+      api_key_env: MISTRAL_API_KEY
+```
+
+When `base_url` is omitted, providers use their standard endpoints:
+- Ollama: `http://localhost:11434`
+- OpenAI: `https://api.openai.com`
+- Anthropic: `https://api.anthropic.com`
+- Mistral: `https://api.mistral.ai`
 
 ## How it works
 
