@@ -6,14 +6,15 @@ identity:
   # company: "Your Company Name"
   # name: "Your Name"
   # email: "your@email.com"
-  # address: "Your Address"
-  # vat_number: "Your VAT Number"
+  # address: "Street Address, City"
+  # vat_number: "NO123456789MVA"
   # aliases:
   #   - "Alternative Name 1"
   #   - "Alternative Name 2"
 
 # LLM provider configuration.
-# The first enabled entry is used. Override at the CLI with --provider.
+# The first enabled entry is used. --provider selects a configured entry for one run,
+# even if that entry is disabled here.
 llm:
   providers:
     - name: ollama
@@ -42,39 +43,10 @@ vendors: []
   #   patterns:
   #     - "Google Ireland Limited"
   #     - "google.com/pay"
-  #   currency: "EUR"
+  #   currency: "USD"
   #   category: "software"
-
-# Vendors to ignore (skip processing entirely)
-ignored_vendors: []
-  # - patterns:
-  #     - "Internal Transfer"
-  #   reason: "Not a receipt"
+  #   hints: "Google Workspace receipts often use Google Ireland Limited as the legal vendor."
 
 # Output configuration
 output:
   format: json
-  include_hash: true
-  schema_version: 1
-
-# Actions to run after successful extraction
-actions: []
-  # - type: copy
-  #   enabled: true
-  #   destination: "~/Documents/Receipts/{{year}}/{{month}}/"
-  #   filename: "{{date}}_{{vendor_slug}}_{{total}}.pdf"
-  #   create_dirs: true
-
-# Processing options
-processing:
-  parallelism: 4
-  ocr:
-    enabled: true
-    language: "eng"
-    dpi: 300
-  deduplication:
-    enabled: false
-
-# Logging
-logging:
-  level: info

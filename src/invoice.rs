@@ -2,6 +2,8 @@ use chrono::NaiveDate;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
+const DATE_FORMAT: &str = "%Y-%m-%d";
+
 /// Line item on an invoice/receipt
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub struct LineItem {
@@ -137,16 +139,15 @@ pub struct IdentityMatch {
 
 // Custom date serialization for YYYY-MM-DD format
 mod date_format {
+    use super::DATE_FORMAT;
     use chrono::NaiveDate;
     use serde::{self, Deserialize, Deserializer, Serializer};
-
-    const FORMAT: &str = "%Y-%m-%d";
 
     pub fn serialize<S>(date: &NaiveDate, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
-        let s = date.format(FORMAT).to_string();
+        let s = date.format(DATE_FORMAT).to_string();
         serializer.serialize_str(&s)
     }
 
@@ -155,22 +156,21 @@ mod date_format {
         D: Deserializer<'de>,
     {
         let s = String::deserialize(deserializer)?;
-        NaiveDate::parse_from_str(&s, FORMAT).map_err(serde::de::Error::custom)
+        NaiveDate::parse_from_str(&s, DATE_FORMAT).map_err(serde::de::Error::custom)
     }
 }
 
 mod option_date_format {
+    use super::DATE_FORMAT;
     use chrono::NaiveDate;
     use serde::{self, Deserialize, Deserializer, Serializer};
-
-    const FORMAT: &str = "%Y-%m-%d";
 
     pub fn serialize<S>(date: &Option<NaiveDate>, serializer: S) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {
         match date {
-            Some(d) => serializer.serialize_some(&d.format(FORMAT).to_string()),
+            Some(d) => serializer.serialize_some(&d.format(DATE_FORMAT).to_string()),
             None => serializer.serialize_none(),
         }
     }
@@ -181,7 +181,7 @@ mod option_date_format {
     {
         let s: Option<String> = Option::deserialize(deserializer)?;
         match s {
-            Some(s) if !s.is_empty() => NaiveDate::parse_from_str(&s, FORMAT)
+            Some(s) if !s.is_empty() => NaiveDate::parse_from_str(&s, DATE_FORMAT)
                 .map(Some)
                 .map_err(serde::de::Error::custom),
             _ => Ok(None),
@@ -240,12 +240,10 @@ mod option_string_or_f64 {
         enum StringOrFloat {
             Float(f64),
             String(String),
-            Null,
         }
 
         match Option::<StringOrFloat>::deserialize(deserializer)? {
             None => Ok(None),
-            Some(StringOrFloat::Null) => Ok(None),
             Some(StringOrFloat::Float(f)) => Ok(Some(f)),
             Some(StringOrFloat::String(s)) if s.is_empty() => Ok(None),
             Some(StringOrFloat::String(s)) => parse_loose_number(&s)

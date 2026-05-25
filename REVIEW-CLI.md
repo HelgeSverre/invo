@@ -9,7 +9,7 @@ Scope reviewed:
 - `docs/Design exploration with AI agents.txt`
 - `src/`
 - `README.md`
-- `default_config.yaml`
+- `config.yaml`
 - live CLI help, validation, init, error, and one extraction path
 
 ## Summary
@@ -18,7 +18,7 @@ Scope reviewed:
 
 The highest-impact fix is to make stdout sacred: extraction data only on stdout, diagnostics only on stderr. The current logger writes warnings/info lines to stdout, so `--format json`, `--format yaml`, and `--format csv` are not reliably parseable.
 
-The second issue is config trust. `default_config.yaml` exposes many fields that parse but do not affect runtime behavior. That makes the config look powerful, but it weakens discoverability because users cannot tell which knobs matter.
+The second issue is config trust. `config.yaml` exposes many fields that parse but do not affect runtime behavior. That makes the config look powerful, but it weakens discoverability because users cannot tell which knobs matter.
 
 Scores:
 
@@ -83,15 +83,15 @@ Recommendation:
   - `--pretty` only affects single-result human display.
 - Update README examples to match the real stream format.
 
-### HIGH: `default_config.yaml` advertises fields that are parsed but unused
+### HIGH: `config.yaml` advertises fields that are parsed but unused
 
 Where:
 
-- `default_config.yaml:48`
-- `default_config.yaml:57`
-- `default_config.yaml:60`
-- `default_config.yaml:68`
-- `default_config.yaml:78`
+- `config.yaml:48`
+- `config.yaml:57`
+- `config.yaml:60`
+- `config.yaml:68`
+- `config.yaml:78`
 - `src/config/schema.rs:19`
 - `src/config/schema.rs:211`
 - `src/config/schema.rs:244`
@@ -117,7 +117,7 @@ This makes config look more mature than the tool. A human will set fields expect
 
 Recommendation:
 
-- Make `default_config.yaml` contain only active settings.
+- Make `config.yaml` contain only active settings.
 - Move future/inert settings to `docs/config-reference.md` or `examples/full_config.future.yaml`, clearly marked as not active.
 - Alternatively add `invo config doctor` that reports inactive keys in the current config.
 
@@ -234,9 +234,9 @@ Where:
 
 Evidence:
 
-- `target/debug/invo config --validate -c default_config.yaml`
+- `target/debug/invo config --validate -c config.yaml`
 - Clap error: `unexpected argument '-c' found`
-- `target/debug/invo -c default_config.yaml config --validate` works.
+- `target/debug/invo -c config.yaml config --validate` works.
 
 Issue:
 
@@ -275,7 +275,7 @@ Recommendation:
 
 Where:
 
-- `default_config.yaml:4`
+- `config.yaml:4`
 - `src/config/schema.rs:35`
 - `src/config/schema.rs:57`
 - `src/extraction/prompt.rs:12`
@@ -301,7 +301,7 @@ Recommendation:
 
 Where:
 
-- `default_config.yaml:39`
+- `config.yaml:39`
 - `src/config/schema.rs:177`
 - `src/extraction/prompt.rs:29`
 
@@ -363,7 +363,7 @@ Recommendation:
 - The default provider path works without API keys if Ollama is running.
 - The README is unusually honest that many full config keys are not wired yet.
 - The actual extraction prompt uses identity and vendors in a way that matches the intended feature direction.
-- `default_config.yaml` is readable and close to what a human would want to edit by hand.
+- `config.yaml` is readable and close to what a human would want to edit by hand.
 
 ## Recommended CLI Shape
 
@@ -487,7 +487,7 @@ First-run hint:
 - Do not print this hint to stdout.
 - Suppress the hint in non-TTY mode unless `--verbose` is set.
 
-## Recommended `default_config.yaml` Shape
+## Recommended `config.yaml` Shape
 
 Keep the generated default config small and honest:
 
@@ -585,8 +585,8 @@ git diff --stat
 cargo run -- --help
 cargo run -- config --help
 cargo run -- init --help
-target/debug/invo -c default_config.yaml config --validate
-target/debug/invo config --validate -c default_config.yaml
+target/debug/invo -c config.yaml config --validate
+target/debug/invo config --validate -c config.yaml
 target/debug/invo config
 env HOME=/tmp/invo-review-empty-home target/debug/invo config --validate
 env HOME=/tmp/invo-review-init-home target/debug/invo -c /tmp/invo-review-custom.yaml init

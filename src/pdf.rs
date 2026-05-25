@@ -2,6 +2,10 @@ use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
+const MIN_MEANINGFUL_TEXT_LENGTH: usize = 50;
+const PDF_MAGIC: &[u8; 4] = b"%PDF";
+const SHORT_HASH_LEN: usize = 16;
+
 /// Result of PDF text extraction
 #[derive(Debug)]
 pub struct PdfExtractionResult {
@@ -13,25 +17,17 @@ pub struct PdfExtractionResult {
 
 /// Extract text from a PDF file
 pub fn extract_text(path: &Path) -> Result<PdfExtractionResult> {
-    let bytes = std::fs::read(path)
-        .with_context(|| format!("Failed to read PDF file: {:?}", path))?;
+    let bytes =
+        std::fs::read(path).with_context(|| format!("Failed to read PDF file: {:?}", path))?;
 
-    // Calculate file hash
-    let mut hasher = Sha256::new();
-    hasher.update(&bytes);
-    let hash = format!("{:x}", hasher.finalize());
-    let file_hash = hash[..16].to_string(); // Short hash
+    let file_hash = short_sha256(&bytes);
 
-    // Try native text extraction first
     let text = pdf_extract::extract_text_from_mem(&bytes)
         .with_context(|| format!("Failed to extract text from PDF: {:?}", path))?;
-
-    // Count pages (approximate by splitting on form feeds or using heuristics)
     let page_count = count_pages(&bytes);
 
-    // Check if extraction was successful (has meaningful text)
     let cleaned_text = text.trim();
-    if cleaned_text.len() < 50 {
+    if cleaned_text.len() < MIN_MEANINGFUL_TEXT_LENGTH {
         tracing::warn!(
             "PDF text extraction yielded very little text ({} chars), OCR may be needed",
             cleaned_text.len()
@@ -46,29 +42,36 @@ pub fn extract_text(path: &Path) -> Result<PdfExtractionResult> {
     })
 }
 
+fn short_sha256(bytes: &[u8]) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(bytes);
+    let hash = format!("{:x}", hasher.finalize());
+    hash[..SHORT_HASH_LEN].to_string()
+}
+
 /// Count pages in a PDF (best effort)
 fn count_pages(bytes: &[u8]) -> usize {
-    // Simple heuristic: count /Page objects
-    // This is a rough estimate, but works for most PDFs
-    let content = String::from_utf8_lossy(bytes);
-    let count = content.matches("/Type /Page").count();
-    if count > 0 {
-        count
-    } else {
-        // Fallback: assume 1 page
-        1
-    }
+    String::from_utf8_lossy(bytes)
+        .matches("/Type /Page")
+        .count()
+        .max(1)
 }
 
 /// Check if a file is a valid PDF (by extension + magic bytes).
 pub fn is_pdf(path: &Path) -> bool {
-    let Some(ext) = path.extension() else { return false };
-    if ext.to_string_lossy().to_lowercase() != "pdf" {
+    if !has_pdf_extension(path) {
         return false;
     }
 
     use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else { return false };
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return false;
+    };
     let mut magic = [0u8; 4];
-    file.read_exact(&mut magic).is_ok() && &magic == b"%PDF"
+    file.read_exact(&mut magic).is_ok() && &magic == PDF_MAGIC
+}
+
+fn has_pdf_extension(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|ext| ext.to_string_lossy().to_lowercase() == "pdf")
 }

@@ -26,11 +26,13 @@ invo samples/claude/Receipt-2238-2456-7832.pdf   # from a clone of this repo
 invo path/to/your-receipt.pdf                    # or any PDF of your own
 ```
 
+Optional: add buyer identity context (`identity.company`, `identity.name`, `identity.email`, `identity.address`, `identity.vat_number`, or `identity.aliases`) when your own company/name appears on receipts and the model might confuse you with the vendor.
+
 That's it. Everything below is reference.
 
 ## Output
 
-invo emits JSON by default (`--format json`), with a stable top-level shape.
+invo emits JSON by default (`--format json`), with a stable top-level shape. A single result is pretty-printed for readability unless you pass `--json`. Multiple JSON results are emitted as compact NDJSON, one object per line, so batch output can be parsed as a stream. Use `--json-array` when you need one JSON array instead.
 
 ```json
 {
@@ -105,6 +107,9 @@ invo emits JSON by default (`--format json`), with a stable top-level shape.
 | Flag | Values | Purpose |
 | ---- | ------ | ------- |
 | `-f, --format` | `json`, `yaml`, `csv` | Output format (overrides config) |
+| `--json` | — | Machine-readable JSON where supported; extraction batches are compact NDJSON |
+| `--json-array` | — | Emit one JSON array containing all successful results |
+| `--pretty` | — | Pretty-print JSON for single-result human display |
 | `-c, --config` | path | Use a specific config file |
 | `--provider` | `ollama`, `openai`, `anthropic`, `mistral` | Force a provider for this run |
 | `-v, --verbose` | repeatable (`-v`, `-vv`) | Debug / trace logging |
@@ -112,16 +117,38 @@ invo emits JSON by default (`--format json`), with a stable top-level shape.
 
 | Subcommand | Purpose |
 | ---------- | ------- |
-| `invo init` | Write a starter config to `~/.config/invo/config.yaml` |
-| `invo config --validate` | Parse the config and report whether it is valid |
+| `invo init [--force]` | Write a starter config to `~/.config/invo/config.yaml`, or to `-c/--config <path>` when supplied |
+| `invo config path` | Print the config path invo will use |
+| `invo config show --effective [--json]` | Show effective config after defaults are applied |
+| `invo config validate [--json]` | Strictly validate config, or report that built-in defaults are in use when the file is missing |
+| `invo config doctor [--json]` | Report parsed-only/inactive config keys |
+| `invo config schema --json` | Emit the JSON schema for config.yaml |
+| `invo agent-context --json` | Emit structured CLI/config context for agents and scripts |
 
 ```bash
-# Glob over a directory of receipts
-invo "receipts/2026/**/*.pdf" > out.ndjson
+# Glob over a directory of receipts as compact NDJSON
+invo "receipts/2026/**/*.pdf" --json > out.ndjson
 ```
 
 ```bash
-# Force OpenAI with trace logging
+# Emit one parseable JSON array for a batch
+invo "receipts/2026/**/*.pdf" --json-array > receipts.json
+```
+
+```bash
+# Validate a specific config; --config works before or after config subcommands
+invo config validate -c config.yaml --json
+```
+
+```bash
+# Show effective config and CLI context for agents/scripts
+invo config show --effective --json
+invo agent-context --json
+```
+
+```bash
+# Force OpenAI with trace logging. The openai provider entry may be disabled in YAML;
+# --provider selects it for this run, but api_key_env must name an environment variable.
 export OPENAI_API_KEY=sk-...
 invo receipt.pdf --provider openai -vv
 ```
@@ -134,6 +161,7 @@ The config lives at `~/.config/invo/config.yaml` (override with `-c <file>`). Ge
 identity:
   company: "Liseth Solutions AS"
   email: "helge@example.com"
+  vat_number: "NO123456789MVA"
 
 llm:
   providers:
@@ -150,12 +178,22 @@ vendors:
     patterns: ["Anthropic, PBC", "anthropic.com"]
     currency: "USD"
     category: "software"
+    hints: "Anthropic receipts often show Anthropic, PBC as the legal vendor."
 
 output:
   format: json
 ```
 
-See [`default_config.yaml`](./default_config.yaml) in the repo root for the full surface written by `invo init`. Only the keys shown above take effect today; the rest parse successfully but are not yet wired into the runtime.
+See [`config.yaml`](./config.yaml) in the repo root for the active starter config written by `invo init`. The parser accepts some future fields for compatibility, but `invo init` only writes settings that affect runtime behavior today.
+
+| Config key | Status | Runtime effect |
+| ---------- | ------ | -------------- |
+| `identity.company`, `identity.name`, `identity.email`, `identity.address`, `identity.vat_number`, `identity.aliases` | Active | Added to the extraction prompt as buyer context so the model does not mistake you for the vendor |
+| `llm.providers[].name`, `enabled`, `model`, `base_url`, `api_key_env` | Active | Selects and configures the LLM provider |
+| `llm.extraction.temperature`, `max_tokens`, `retry_attempts` | Active | Passed into Rig completion requests and retry handling |
+| `vendors[].name`, `patterns`, `currency`, `category`, `hints` | Active | Added to the extraction prompt as known vendor context |
+| `output.format` | Active | Sets default `json`, `yaml`, or `csv` output |
+| `llm.providers[].model_path`, `ignored_vendors`, `actions`, `processing`, `logging`, `output.include_hash`, `output.schema_version` | Future | Parsed only; not written by `invo init`; `invo config doctor` reports these when present |
 
 ## Providers
 
@@ -166,7 +204,7 @@ See [`default_config.yaml`](./default_config.yaml) in the repo root for the full
 | `anthropic` | Not implemented | — | — |
 | `mistral` | Not implemented | — | — |
 
-invo uses the first provider with `enabled: true` in config. Override per-run with `--provider <name>`; if you force an unimplemented one, invo errors instead of silently picking another.
+invo uses the first provider with `enabled: true` in config. Override per-run with `--provider <name>` to select any configured provider entry by name, even if that entry has `enabled: false`. The override does not invent missing provider settings: for OpenAI, the selected provider still needs `model` and `api_key_env`, and the named environment variable must be set. If you force an unimplemented provider, invo errors instead of silently picking another.
 
 ## How it works
 
@@ -181,7 +219,6 @@ The [`pdf_extract`](https://crates.io/crates/pdf-extract) crate parses text out 
 
 - **No OCR.** Image-only or scanned PDFs produce empty text and error out.
 - **Serial processing.** Files are extracted one at a time.
-- **No retries.** A transient LLM failure fails the file.
 - **Anthropic and Mistral providers are not implemented.** The CLI accepts `--provider anthropic|mistral` but returns an error.
 - **CSV output is flat.** Line items, tax, and vendor metadata are dropped.
 

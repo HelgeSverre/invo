@@ -19,8 +19,7 @@ serde_json = "1"
 pdf-extract = "0.10"
 
 # LLM providers
-ollama-rs = { version = "0.3", features = ["stream"] }
-reqwest = { version = "0.12", features = ["json"] }
+rig-core = "0.37"
 
 # Templating
 minijinja = "2"
@@ -28,7 +27,7 @@ minijinja = "2"
 # Async runtime
 tokio = { version = "1", features = ["full"] }
 
-# JSON Schema generation (must match ollama-rs version)
+# JSON Schema generation
 schemars = "1"
 
 # Parallel processing
@@ -43,9 +42,6 @@ url = "2"
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
 
-# Async
-async-trait = "0.1"
-
 # Error handling
 anyhow = "1"
 thiserror = "2"
@@ -53,3 +49,6 @@ thiserror = "2"
 # Logging
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[dev-dependencies]
+rig-core = { version = "0.37", features = ["test-utils"] }
