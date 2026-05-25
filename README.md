@@ -18,21 +18,63 @@ cargo install --path .
 
 invo supports shell completions for Bash, Zsh, and Fish:
 
-**Zsh:**
+**Zsh (macOS/Linux):**
 ```bash
-invo completions --shell zsh > /usr/local/share/zsh/site-functions/_invo
+# For Homebrew-installed Zsh (recommended on macOS):
+mkdir -p ~/.zsh/completions
+invo completions --shell zsh > ~/.zsh/completions/_invo
+
+# For system Zsh (check your $fpath):
+invo completions --shell zsh > ${fpath[1]}/_invo
+
+# Then add to your .zshrc:
+fpath=(~/.zsh/completions $fpath)
+autoload -U compinit && compinit
 ```
 
-**Bash:**
+**Bash (macOS/Linux):**
 ```bash
-invo completions --shell bash > /etc/bash_completion.d/invo
-# or for local installation:
+# System-wide (may require sudo):
+invo completions --shell bash > /usr/local/etc/bash_completion.d/invo
+
+# User-local (recommended):
+mkdir -p ~/.local/share/bash-completion/completions
 invo completions --shell bash > ~/.local/share/bash-completion/completions/invo
+
+# Add to your .bashrc/.bash_profile:
+if [ -f ~/.local/share/bash-completion/completions/invo ]; then
+    source ~/.local/share/bash-completion/completions/invo
+fi
 ```
 
-**Fish:**
+**Fish (macOS/Linux):**
 ```bash
 invo completions --shell fish > ~/.config/fish/completions/invo.fish
+```
+
+**Detection script (recommended):**
+```bash
+# Detects the right location automatically
+case $SHELL in
+  */zsh)
+    mkdir -p ~/.zsh/completions
+    invo completions --shell zsh > ~/.zsh/completions/_invo
+    echo 'fpath=(~/.zsh/completions $fpath)' >> ~/.zshrc
+    echo 'autoload -U compinit && compinit' >> ~/.zshrc
+    ;;
+  */bash)
+    mkdir -p ~/.local/share/bash-completion/completions
+    invo completions --shell bash > ~/.local/share/bash-completion/completions/invo
+    echo '[ -f ~/.local/share/bash-completion/completions/invo ] && source ~/.local/share/bash-completion/completions/invo' >> ~/.bashrc
+    ;;
+  */fish)
+    invo completions --shell fish > ~/.config/fish/completions/invo.fish
+    ;;
+  *)
+    echo "Unsupported shell: $SHELL"
+    ;;
+esac
+echo "Completions installed! Restart your shell or run 'exec $SHELL'"
 ```
 
 After installation, restart your shell or run `exec zsh`/`exec bash` to load the completions.

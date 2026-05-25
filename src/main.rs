@@ -96,7 +96,7 @@ enum Commands {
 
     /// Generate shell completions
     #[command(
-        after_help = "Examples:\n  invo completions --shell zsh > /usr/local/share/zsh/site-functions/_invo\n  invo completions --shell bash > /etc/bash_completion.d/invo\n  invo completions --shell fish > ~/.config/fish/completions/invo.fish"
+        after_help = "Examples:\n  invo completions --shell zsh > ~/.zsh/completions/_invo\n  invo completions --shell bash > ~/.local/share/bash-completion/completions/invo\n  invo completions --shell fish > ~/.config/fish/completions/invo.fish\n\n  See README for shell-specific installation instructions."
     )]
     Completions {
         /// Shell to generate completions for
@@ -358,6 +358,14 @@ fn handle_agent_context(cli: &Cli) -> Result<()> {
                     "invo config show --effective --json",
                     "invo config validate -c config.yaml --json",
                     "invo config doctor --json"
+                ]
+            },
+            "completions": {
+                "shells": ["zsh", "bash", "fish"],
+                "examples": [
+                    "invo completions --shell zsh > ~/.zsh/completions/_invo",
+                    "invo completions --shell bash > ~/.local/share/bash-completion/completions/invo",
+                    "invo completions --shell fish > ~/.config/fish/completions/invo.fish"
                 ]
             }
         },
