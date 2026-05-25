@@ -1,0 +1,382 @@
+7 Principles for Agent-Friendly
+CLIs
+A design guide for your CLI's other consumer
+TREVIN CHOW
+MAR 26, 2026
+
+⭐️
+
+Note: This original article has been superseded by a more updated version:
+
+10 Principles for Agent Native CLIs.
+I’ve been building a couple of CLIs as side projects recently, and I
+wanted them to be agent-first from the start. Not “an agent could
+probably use this” but optimized for how agents work. So I went
+looking for guidance.
+
+What I found was exactly what you’d expect: great CLI design resources
+that are entirely about humans. The Command Line Interface Guidelines
+project is excellent. So is CLI-Anything. But they’re written for a world
+where the consumer is a person at a terminal who can read a prompt,
+make a judgment call, and visually parse a nicely formatted table.
+Agents can handle some of that when they’re running interactively, but
+the moment an agent or skill spawns a background subagent,
+interactive CLIs break. There’s no way to surface an interactive prompt
+back up through that chain, and both Claude Code and Codex will bail.
+Colored output wastes tokens. Unbounded responses eat context
+windows. The assumptions baked into human-first CLI design create
+real failure modes for agent consumers.
+Anthropic published solid guidance on writing tools for agents, but it’s
+tool-design guidance broadly, not CLI-specific. What was missing was a
+practical rubric for evaluating whether a CLI works well for agents, not
+whether it technically works at all.
+So I wrote one. I synthesized what I found across those sources with my
+own experience running agents against CLIs, and landed on seven
+principles that cover the gap between “this works” and “this works well.”
+I also built a CLI Agent Readiness Reviewer for the Compound
+Engineering plugin that evaluates CLI source code against these
+principles automatically, but more on that later.
+This post walks through all seven. The examples use a fictional blog-cli to
+keep things concrete without getting tangled in any particular tool’s
+specifics.
+
+Thanks for reading Trevin’s Notes! Subscribe
+for free to receive new posts and support
+my work.
+Pledge your support
+
+Why CLI over MCP?
+Quick context for anyone wondering why CLIs matter when MCP exists.
+CLIs are text in, text out, composable by design. LLMs already know
+common CLI tools from training data, so there’s zero schema overhead.
+An MCP server can burn tens of thousands of tokens just loading tool
+definitions before a single question gets asked. MCP earns its
+complexity when you need per-user auth and structured governance,
+but for the tools developers build and use day-to-day, a well-designed
+CLI is faster, cheaper, and more reliable.
+CLIs still trip agents up in predictable ways. The principles below are
+where those problems live.
+
+A severity rubric, not a scorecard
+Before getting into the principles, a note on how to use them. This isn’t
+pass/fail. Each finding maps to one of three severity levels:
+Blocker means the issue prevents reliable agent use. The command
+hangs, requires human intervention, or produces output an agent can’t
+recover from. Friction means agents can use it, but inefficiently: more
+retries, wasted tokens, brittle parsing, extra tool calls. Optimization
+means the CLI works fine but could be faster, cheaper, or more reliable
+for agent consumers.
+The severity also depends on command type. Idempotence is highvalue for mutating commands but irrelevant for a streaming log tail.
+Structured output is a blocker for read/query commands but less
+critical for a one-off bootstrap wizard. Evaluate by what the command
+does, not by applying every principle uniformly.
+
+1. Non-interactive by default
+
+The principle: Any command an agent might automate should run
+without prompts. Interactive mode can still exist for humans, but it
+should be a convenience layer, not the only path.
+This is the most common blocker I’ve hit. When a skill spawns a
+subagent that shells out to a CLI, there’s no way to surface an
+interactive prompt back to the user. The command just hangs, waiting
+for input that will never come. Even in interactive agent sessions,
+prompts create friction: extra round-trips, ambiguous menu navigation,
+wasted tokens. If stdin isn’t a TTY, the command should not prompt.
+Period.
+What good looks like:
+
+# Human at a terminal (TTY detected) — prompts fill in missing inputs
+$ blog-cli publish
+? Status? (use arrow keys)
+draft
+> published
+scheduled
+? Path to content: my-post.md
+Published "My Post" to personal
+# Agent or script (no TTY, or --no-input) — flags only, no prompts
+$ blog-cli publish --content my-post.md --yes
+Published "My Post" to personal (post_id: post_8k3m)
+
+The fix: support --no-input or --non-interactive, detect TTY vs non-TTY and
+suppress prompts when stdin isn’t interactive, accept --yes / --force for
+confirmation bypass, and take structured input via flags, files, or stdin.
+If you want to verify this works, the test is simple: detach stdin and
+enforce a timeout.
+
+python3 - <<'PY'
+import subprocess, sys
+cmd = ["blog-cli", "publish", "--content", "my-post.md"]
+try:
+result = subprocess.run(
+cmd,
+stdin=subprocess.DEVNULL,
+stdout=subprocess.PIPE,
+stderr=subprocess.PIPE,
+text=True,
+timeout=10,
+)
+print("exit:", result.returncode)
+print("PASS: command exited without hanging")
+except subprocess.TimeoutExpired:
+print("FAIL: command hung waiting for input")
+sys.exit(1)
+PY
+
+A command that hangs waiting for input is a Blocker. A command
+where some prompts can be bypassed but behavior is inconsistent
+across subcommands is Friction. Full flag coverage with a global noninteractive mode is the Optimization target.
+
+2. Structured, parseable output
+The principle: Commands that return data should expose a stable
+machine-readable representation.
+Agents need data contracts, not presentation formatting. A nicely
+aligned table with ANSI colors is great for humans and useless for an
+
+agent trying to extract a post ID. If the only output is prose or
+decorated tables, the agent has to scrape its own tooling, which is
+brittle and wasteful.
+What good looks like:
+
+# Human-readable
+$ blog-cli publish --content my-post.md
+Published "My Post" to personal
+URL: https://personal.blog.dev/my-post
+Post ID: post_8k3m
+# Machine-readable
+$ blog-cli publish --content my-post.md --json
+{"title":"My Post","url":"https://personal.blog.dev/mypost","post_id":"post_8k3m","status":"published"}
+
+What to implement: support --json on data-bearing commands, use exit
+code 0 for success and non-zero for failure, write result data to stdout
+and diagnostics to stderr, return useful fields (names, URLs, IDs, status),
+and suppress color, spinners, and decorative output when not attached
+to a TTY.
+That last point is easy to miss. Plenty of CLIs detect TTY correctly for
+prompts but still blast ANSI escape codes into piped output. An agent
+parsing \x1b[32m✓ Published\x1b[0m is burning tokens on noise.
+No structured output at all is a Blocker. Inconsistent coverage or mixed
+stdout/stderr is Friction. Full --json on all data-bearing commands with
+clean separation is the Optimization target.
+
+3. Fail fast with actionable errors
+
+The principle: When a command fails, the error should teach the agent
+how to succeed on the next attempt.
+This is where most CLIs are weakest for agents. Humans can infer what
+went wrong from a vague error message. Agents can’t. “Error: missing
+required arguments” tells an agent almost nothing. “Error: --content is
+required” tells it exactly what to fix.
+What good looks like:
+
+# Bad
+$ blog-cli publish
+Error: missing required arguments
+# Better
+$ blog-cli publish
+Error: --content is required.
+Usage: blog-cli publish --content <file> [--status <status>]
+Available statuses: draft, published, scheduled
+Example: blog-cli publish --content my-post.md
+
+The good error does four things: names the specific problem, shows the
+correct invocation shape, suggests valid values, and includes an
+example. An agent that gets this error can self-correct in one retry. An
+agent that gets “missing required arguments” has to guess, which
+means extra tool calls, wasted tokens, and a chance of getting it wrong
+again.
+The implementation side: validate early before side effects, include the
+correct syntax in error output, suggest valid values when validation
+fails, and prefer actionable text over raw tracebacks.
+Vague or silent failures are a Blocker. Errors that name the problem but
+not the fix are Friction. Errors with the full correction path are the
+
+Optimization target.
+
+4. Safe retries and explicit mutation
+boundaries
+The principle: Agents retry, resume, and sometimes replay commands.
+Mutating commands should make that safe when possible, and
+dangerous mutations should be explicit.
+This matters more for agents than for humans because agents are more
+likely to retry automatically. A human who runs a command twice will
+notice the duplicate. An agent operating in a retry loop won’t, unless the
+CLI tells it what happened.
+What good looks like:
+
+# Repeating the same command doesn't create duplicate work
+$ blog-cli publish --content my-post.md
+Published "My Post" to personal (post_id: post_8k3m)
+$ blog-cli publish --content my-post.md
+Already published "My Post" to personal, no changes (post_id: post_8k3m)
+# Dangerous mutation is explicit
+$ blog-cli posts delete --slug my-post --confirm
+
+The goal isn’t strict idempotence everywhere. For create/update/deploy
+commands, making duplicate application a no-op or clearly detectable
+is high-value. For append/send/trigger commands, exact idempotence
+may be impossible, but the CLI should at least make mutation
+boundaries explicit and return identifiers that let an agent determine
+whether it repeated work.
+
+Provide --dry-run for consequential mutations, use explicit destructive
+flags for dangerous operations, and return enough state in success
+output to verify what happened.
+Retrying a mutating command that silently duplicates or corrupts state
+is a Blocker. Scriptable destructive commands with little preview or
+state feedback are Friction. Safe retries with explicit danger flags and
+audit-friendly identifiers are the Optimization target.
+
+5. Progressive help discovery
+The principle: Agents don’t read a CLI’s full documentation up front.
+They probe top-level help, then subcommand help, then examples. Help
+should support that incremental workflow.
+Think about how an agent explores a CLI. It starts with --help at the top
+level to understand the command surface. Then it drills into a specific
+subcommand. It needs to go from “what can this tool do” to “how do I
+invoke this specific command” in two calls, not five.
+What good looks like:
+
+$ blog-cli --help
+Usage: blog-cli <command>
+Commands:
+publish
+
+Publish content
+
+posts
+
+List and manage posts
+
+$ blog-cli publish --help
+Publish a markdown file to your blog.
+Options:
+
+--content Path to markdown file
+--status Post status (draft, published, scheduled; default: published)
+--yes
+
+Skip confirmation prompt
+
+--json
+
+Output as JSON
+
+--dry-run Preview without publishing
+Examples:
+blog-cli publish --content my-post.md
+blog-cli publish --content my-post.md --status draft
+blog-cli publish --content my-post.md --dry-run
+
+Each subcommand’s help should include four things: a one-line purpose,
+a concrete invocation pattern, required arguments or flags, and the
+most important modifiers or safety flags. If any of those are missing, an
+agent has to guess or make extra calls to figure out the invocation
+shape.
+Examples matter more than you’d think. Anthropic’s own tool-design
+guidance shows that concrete examples improve how well agents use
+tools. A help page with no examples forces the agent to synthesize the
+invocation from the flag descriptions, which works but burns tokens
+and invites mistakes.
+Hard-to-discover subcommands or missing --help is a Blocker. Help that
+exists but omits invocation patterns or required arguments is Friction.
+Layered, example-driven help with links to deeper docs is the
+Optimization target.
+
+6. Composable and predictable structure
+The principle: Agents solve tasks by chaining commands. They benefit
+from CLIs that accept stdin, produce clean stdout, and use predictable
+naming and subcommand patterns.
+
+Agents are natural pipers. They chain the output of one command into
+the input of another, same as any shell script. But they’re less tolerant of
+inconsistency than humans, because they’re pattern-matching on
+structure rather than reading the docs and making judgment calls.
+What good looks like:
+
+cat posts.json | blog-cli posts import --stdin
+blog-cli posts list --json | blog-cli posts validate --stdin
+blog-cli posts list --status draft --limit 5 --json | jq -r '.[].title'
+
+What to implement: accept input via flags, files, or stdin where it helps
+automation, support - as a stdin/stdout alias when file paths are
+involved, keep command structures consistent across related resources,
+and prefer flags for ambiguous multi-field operations while reserving
+positional arguments for familiar conventional cases.
+Consistency across subcommands is the subtle one. If blog-cli posts list
+supports --json but blog-cli posts stats doesn’t, the agent has to learn the
+exception rather than applying a pattern. If blog-cli posts list uses --limit but
+blog-cli comments list uses --max-results, the agent has to remember an
+
+arbitrary naming difference instead of reusing what it already knows.
+Commands that can’t participate in pipelines are a Blocker. Inconsistent
+naming and structure across subcommands are Friction. Regular
+patterns with clean stdin/stdout are the Optimization target.
+
+7. Bounded, high-signal responses
+The principle: Agents pay a real cost for every extra line of output.
+Large outputs are sometimes justified, but the CLI should make narrow,
+relevant responses the default.
+
+This is the one that most CLI authors don’t think about because it’s
+invisible to human users. A human scrolls past 500 lines of output and
+visually finds what they need. An agent consumes all 500 lines into its
+context window, paying for every token, and then has to figure out
+which lines mattered.
+What good looks like:
+
+# Broad but bounded
+$ blog-cli posts list --limit 25
+Showing 25 of 312 posts
+To narrow results: blog-cli posts list --status published --since 7d --limit 10
+# More precise
+$ blog-cli posts list --tag javascript --status published --since 30d --limit 10 --json
+
+The important design move here is that when the CLI truncates, it
+teaches the agent how to narrow the query. “Showing 25 of 312 posts”
+plus a suggested narrowing command gives the agent a next step.
+Dumping all 312 posts gives it a parsing problem.
+Support filtering, pagination, and limits on large result sets. Provide
+concise vs detailed response modes. When truncating, explain how to
+narrow or page. Return summaries and identifiers before raw detail.
+A routine query that dumps huge output with no narrowing controls is a
+Blocker. Narrowing that exists but has too-broad defaults is Friction.
+Bounded defaults that teach the next better query are the Optimization
+target.
+
+Making it automatic
+
+After writing these principles, I wanted a way to apply them without
+manually reviewing every CLI I work on. So I built a CLI Agent Readiness
+Reviewer as part of the Compound Engineering plugin. It’s a review
+agent that reads your CLI source code, plans, or specs and evaluates
+them against all seven principles using the severity rubric.
+It’s framework-aware, so it gives idiomatic recommendations whether
+you’re working in Click, argparse, Cobra, clap, Commander, yargs, oclif,
+or Thor. It distinguishes what matters by command type, so it won’t flag
+a streaming command for missing idempotence. And it generates perfinding test assertions, so you can enforce agent-friendliness in CI if
+you want to go that far.
+The principles guide is bundled as a standalone reference doc in the
+same PR if you’d rather just read the rubric and apply it yourself. But if
+you’re already using Compound Engineering, the reviewer agent makes
+it hands-free.
+
+Humans ❤️Agents
+Every principle here makes a CLI better for humans too. Structured
+output, actionable errors, bounded responses, non-interactive
+automation paths: these aren’t concessions to agents at the expense of
+human experience. They’re good CLI design that we’ve been
+inconsistently applying because humans are forgiving enough to work
+around the gaps.
+Agents have gotten more forgiving with every model release. They can
+often infer what a vague error meant, guess at the right flag name,
+parse messy output well enough to extract what they need. But “well
+enough” costs tokens, burns retries, and introduces failure modes that
+don’t need to exist. Designing for agents as a first-class consumer
+removes that tax, and the CLI ends up better for humans in the process.
+
+Thanks for reading Trevin’s Notes! This post
+
+is public so feel free to share it.
+Share
+
+
