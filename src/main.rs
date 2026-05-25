@@ -9,27 +9,31 @@ use anyhow::{anyhow, bail, Context, Result};
 use clap::{Parser, Subcommand};
 use serde::Serialize;
 use serde_yaml::{Mapping, Value};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use config::{load_config, load_config_status, Config, LoadedConfig, OutputFormat, ProviderName};
-use extractor::extract_invoice;
+use extractor::{extract_invoice, InvoiceInput};
 use invoice::ExtractionResult;
-use pdf::is_pdf;
+use pdf::{is_pdf, is_pdf_bytes};
 
 #[derive(Parser)]
 #[command(name = "invo")]
 #[command(about = "Extract structured data from PDF receipts/invoices using LLMs")]
 #[command(version)]
 #[command(
-    after_help = "Examples:\n  invo receipt.pdf\n  invo \"receipts/**/*.pdf\" --json > receipts.ndjson\n  invo \"receipts/**/*.pdf\" --json-array > receipts.json\n  invo -c config.yaml config validate\n  invo config show --effective --json\n  invo agent-context --json"
+    after_help = "Examples:\n  invo receipt.pdf\n  invo - < receipt.pdf\n  invo --files-from receipts.txt --json\n  invo \"receipts/**/*.pdf\" --json > receipts.ndjson\n  invo \"receipts/**/*.pdf\" --json-array > receipts.json\n  invo -c config.yaml config validate\n  invo config show --effective --json\n  invo agent-context --json"
 )]
 struct Cli {
     #[command(subcommand)]
     command: Option<Commands>,
 
-    /// PDF file(s) to process (supports glob patterns)
+    /// PDF file(s) to process (supports glob patterns). Use '-' to read PDF bytes from stdin.
     #[arg(value_name = "FILE")]
     files: Vec<PathBuf>,
+
+    /// Read newline-delimited file paths or globs from a file. Use '-' to read the list from stdin.
+    #[arg(long, value_name = "PATH")]
+    files_from: Option<PathBuf>,
 
     /// Output format (json, yaml, csv)
     #[arg(short, long, value_enum)]
@@ -141,28 +145,27 @@ async fn main() -> Result<()> {
     let config = load_config(cli.config.as_ref())?;
     let _ = output_format(&config, &cli)?;
 
-    if cli.files.is_empty() {
-        eprintln!("No files specified. Use --help for usage information.");
+    let inputs = collect_inputs(&cli)?;
+
+    if inputs.is_empty() {
+        if cli.files.is_empty() && cli.files_from.is_none() {
+            eprintln!("No files specified. Use --help for usage information.");
+        } else {
+            eprintln!("No PDF files found matching the specified patterns.");
+        }
         std::process::exit(1);
     }
 
-    let files = expand_files(&cli.files)?;
-
-    if files.is_empty() {
-        eprintln!("No PDF files found matching the specified patterns.");
-        std::process::exit(1);
-    }
-
-    tracing::info!("Processing {} file(s)", files.len());
+    tracing::info!("Processing {} file(s)", inputs.len());
 
     let mut results = Vec::new();
 
-    for file in &files {
-        match extract_invoice(file, &config, cli.provider).await {
+    for input in &inputs {
+        match extract_invoice(input, &config, cli.provider).await {
             Ok(result) => results.push(result),
             Err(e) => {
-                tracing::error!("Failed to process {:?}: {}", file, e);
-                if files.len() == 1 {
+                tracing::error!("Failed to process {}: {}", input.path, e);
+                if inputs.len() == 1 {
                     return Err(e);
                 }
             }
@@ -330,6 +333,8 @@ fn handle_agent_context(cli: &Cli) -> Result<()> {
                 "stderr_contract": "diagnostics only",
                 "examples": [
                     "invo receipt.pdf --json",
+                    "invo - < receipt.pdf",
+                    "invo --files-from receipts.txt --json",
                     "invo \"receipts/**/*.pdf\" --json",
                     "invo \"receipts/**/*.pdf\" --json-array"
                 ]
@@ -518,21 +523,72 @@ struct ConfigDoctorOutput {
     warnings: Vec<String>,
 }
 
-fn expand_files(patterns: &[PathBuf]) -> Result<Vec<PathBuf>> {
-    let mut files = Vec::new();
+fn collect_inputs(cli: &Cli) -> Result<Vec<InvoiceInput>> {
+    let patterns = input_patterns(cli)?;
+    expand_inputs(&patterns)
+}
+
+fn input_patterns(cli: &Cli) -> Result<Vec<PathBuf>> {
+    let mut patterns = cli.files.clone();
+
+    if let Some(files_from) = &cli.files_from {
+        patterns.extend(read_files_from(files_from)?);
+    }
+
+    Ok(patterns)
+}
+
+fn read_files_from(path: &Path) -> Result<Vec<PathBuf>> {
+    let contents = if is_stdin_marker(path) {
+        let mut contents = String::new();
+        std::io::Read::read_to_string(&mut std::io::stdin(), &mut contents)
+            .context("Failed to read newline-delimited file list from stdin")?;
+        contents
+    } else {
+        std::fs::read_to_string(path)
+            .with_context(|| format!("Failed to read file list: {}", path.display()))?
+    };
+
+    Ok(parse_file_list(&contents))
+}
+
+fn parse_file_list(contents: &str) -> Vec<PathBuf> {
+    contents
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(PathBuf::from)
+        .collect()
+}
+
+fn expand_inputs(patterns: &[PathBuf]) -> Result<Vec<InvoiceInput>> {
+    let stdin_count = patterns
+        .iter()
+        .filter(|pattern| is_stdin_marker(pattern))
+        .count();
+    if stdin_count > 1 {
+        bail!("stdin PDF input '-' can only be specified once");
+    }
+
+    let mut inputs = Vec::new();
 
     for pattern in patterns {
+        if is_stdin_marker(pattern) {
+            inputs.push(read_stdin_pdf_input()?);
+            continue;
+        }
+
         let pattern_str = pattern.to_string_lossy();
 
         if pattern_str.contains('*') || pattern_str.contains('?') {
             for entry in glob::glob(&pattern_str)? {
                 let path = entry?;
                 if is_pdf(&path) {
-                    files.push(path);
+                    inputs.push(InvoiceInput::from_path(path));
                 }
             }
         } else if pattern.exists() && is_pdf(pattern) {
-            files.push(pattern.clone());
+            inputs.push(InvoiceInput::from_path(pattern.clone()));
         } else if pattern.exists() {
             tracing::warn!("Skipping {:?} - not a PDF file", pattern);
         } else {
@@ -540,7 +596,27 @@ fn expand_files(patterns: &[PathBuf]) -> Result<Vec<PathBuf>> {
         }
     }
 
-    Ok(files)
+    Ok(inputs)
+}
+
+fn read_stdin_pdf_input() -> Result<InvoiceInput> {
+    let mut bytes = Vec::new();
+    std::io::Read::read_to_end(&mut std::io::stdin(), &mut bytes)
+        .context("Failed to read PDF bytes from stdin")?;
+
+    if bytes.is_empty() {
+        bail!("stdin input was empty. Pipe PDF bytes with `invo -`, or use --files-from <path> for newline-delimited file paths.");
+    }
+
+    if !is_pdf_bytes(&bytes) {
+        bail!("stdin input is not a PDF (missing %PDF header). Pipe PDF bytes with `invo -`, or use --files-from <path> for newline-delimited file paths.");
+    }
+
+    Ok(InvoiceInput::stdin(bytes))
+}
+
+fn is_stdin_marker(path: &Path) -> bool {
+    path.as_os_str() == "-"
 }
 
 fn render_results(results: &[ExtractionResult], config: &Config, cli: &Cli) -> Result<String> {
@@ -644,6 +720,7 @@ mod tests {
         Cli {
             command: None,
             files: Vec::new(),
+            files_from: None,
             format: None,
             json: false,
             json_array: false,
@@ -692,6 +769,37 @@ mod tests {
             },
             identity_match: None,
         }
+    }
+
+    #[test]
+    fn file_list_parsing_ignores_empty_lines_and_comments() {
+        let paths = parse_file_list("\n# generated list\n samples/one.pdf \n\nreceipts/two.pdf\n");
+
+        assert_eq!(
+            paths,
+            vec![
+                PathBuf::from("samples/one.pdf"),
+                PathBuf::from("receipts/two.pdf")
+            ]
+        );
+    }
+
+    #[test]
+    fn expand_inputs_accepts_pdf_paths() {
+        let path = PathBuf::from("samples/claude/Receipt-2238-2456-7832.pdf");
+        let inputs = expand_inputs(&[path.clone()]).expect("sample pdf should expand");
+
+        assert_eq!(inputs.len(), 1);
+        assert_eq!(inputs[0].path, path.to_string_lossy().to_string());
+        assert_eq!(inputs[0].original_name, "Receipt-2238-2456-7832.pdf");
+    }
+
+    #[test]
+    fn expand_inputs_rejects_duplicate_stdin_markers_without_reading() {
+        let error = expand_inputs(&[PathBuf::from("-"), PathBuf::from("-")])
+            .expect_err("duplicate stdin markers should fail before reading twice");
+
+        assert!(error.to_string().contains("can only be specified once"));
     }
 
     #[test]

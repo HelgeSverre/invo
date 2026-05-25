@@ -1,7 +1,8 @@
 use serde_json::Value;
 use std::fs;
+use std::io::Write;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 
 fn invo() -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_invo"));
@@ -47,6 +48,54 @@ fn missing_input_diagnostics_do_not_write_to_stdout() {
 
     assert!(stdout.is_empty());
     assert!(stderr.contains("File not found"));
+    assert!(stderr.contains("No PDF files found"));
+}
+
+#[test]
+fn stdin_non_pdf_input_returns_actionable_error() {
+    let mut child = invo()
+        .arg("-")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("invo should start");
+
+    child
+        .stdin
+        .take()
+        .expect("stdin should be piped")
+        .write_all(b"not a pdf")
+        .expect("stdin fixture should write");
+
+    let output = child.wait_with_output().expect("invo should finish");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("stdin input is not a PDF"));
+    assert!(stderr.contains("--files-from"));
+}
+
+#[test]
+fn files_from_reads_newline_delimited_paths() {
+    let list_path = temp_path("files-from.txt");
+    fs::write(&list_path, "README.md\ndoes-not-exist.pdf\n").expect("file list should be written");
+
+    let output = invo()
+        .args(["--files-from", list_path.to_str().unwrap(), "-v"])
+        .output()
+        .expect("invo should run");
+
+    assert!(!output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+
+    assert!(stdout.is_empty());
+    assert!(stderr.contains("Skipping \"README.md\" - not a PDF file"));
+    assert!(stderr.contains("File not found: \"does-not-exist.pdf\""));
     assert!(stderr.contains("No PDF files found"));
 }
 

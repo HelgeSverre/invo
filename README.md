@@ -14,7 +14,7 @@ From a clone, for contributors:
 cargo install --path .
 ```
 
-Requires Rust 1.70+ and, for the default provider, a running [Ollama](https://ollama.com) instance.
+Requires Rust 1.70+ and, for the default provider, a running [Ollama](https://ollama.com) instance. Provider calls are implemented through [`rig-core`](https://crates.io/crates/rig-core).
 
 ## Quick start
 
@@ -102,6 +102,8 @@ invo emits JSON by default (`--format json`), with a stable top-level shape. A s
 
 `--format yaml` emits the same shape. `--format csv` emits only `vendor,date,total,currency,invoice_number` — lossy by design.
 
+**stdout/stderr contract:** successful extraction data is written to stdout only. Diagnostics, progress, warnings, validation errors, and logs are written to stderr.
+
 ## Commands & flags
 
 | Flag | Values | Purpose |
@@ -111,6 +113,7 @@ invo emits JSON by default (`--format json`), with a stable top-level shape. A s
 | `--json-array` | — | Emit one JSON array containing all successful results |
 | `--pretty` | — | Pretty-print JSON for single-result human display |
 | `-c, --config` | path | Use a specific config file |
+| `--files-from` | path or `-` | Read newline-delimited PDF paths/globs from a file or stdin |
 | `--provider` | `ollama`, `openai`, `anthropic`, `mistral` | Force a provider for this run |
 | `-v, --verbose` | repeatable (`-v`, `-vv`) | Debug / trace logging |
 | `-h, --help` | — | Show help |
@@ -131,6 +134,17 @@ invo "receipts/2026/**/*.pdf" --json > out.ndjson
 ```
 
 ```bash
+# Pipe PDF bytes from stdin; stdin metadata is reported as stdin.pdf
+invo - < receipt.pdf
+```
+
+```bash
+# Read newline-delimited PDF paths or globs from a file
+printf '%s\n' 'receipts/january.pdf' 'receipts/february.pdf' > receipts.txt
+invo --files-from receipts.txt --json > out.ndjson
+```
+
+```bash
 # Emit one parseable JSON array for a batch
 invo "receipts/2026/**/*.pdf" --json-array > receipts.json
 ```
@@ -146,6 +160,8 @@ invo config show --effective --json
 invo agent-context --json
 ```
 
+For agents/scripts, prefer `--json` for extraction streams, `--json-array` when a single JSON document is easier, `invo config validate --json` before editing config, and `invo agent-context --json` for command/config discovery.
+
 ```bash
 # Force OpenAI with trace logging. The openai provider entry may be disabled in YAML;
 # --provider selects it for this run, but api_key_env must name an environment variable.
@@ -155,7 +171,7 @@ invo receipt.pdf --provider openai -vv
 
 ## Configuration
 
-The config lives at `~/.config/invo/config.yaml` (override with `-c <file>`). Generate one with `invo init`.
+The config lives at `~/.config/invo/config.yaml` (override with `-c <file>`). Setup is currently non-interactive: generate a starter file with `invo init`, or write to a custom destination with `invo -c ./config.yaml init`.
 
 ```yaml
 identity:
@@ -204,7 +220,7 @@ See [`config.yaml`](./config.yaml) in the repo root for the active starter confi
 | `anthropic` | Not implemented | — | — |
 | `mistral` | Not implemented | — | — |
 
-invo uses the first provider with `enabled: true` in config. Override per-run with `--provider <name>` to select any configured provider entry by name, even if that entry has `enabled: false`. The override does not invent missing provider settings: for OpenAI, the selected provider still needs `model` and `api_key_env`, and the named environment variable must be set. If you force an unimplemented provider, invo errors instead of silently picking another.
+invo uses Rig-backed completion providers. It selects the first provider with `enabled: true` in config. Override per-run with `--provider <name>` to select any configured provider entry by name, even if that entry has `enabled: false`. The override does not invent missing provider settings: for OpenAI, the selected provider still needs `model` and `api_key_env`, and the named environment variable must be set. If you force an unimplemented provider, invo errors instead of silently picking another.
 
 ## How it works
 

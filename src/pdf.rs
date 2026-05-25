@@ -20,11 +20,16 @@ pub fn extract_text(path: &Path) -> Result<PdfExtractionResult> {
     let bytes =
         std::fs::read(path).with_context(|| format!("Failed to read PDF file: {:?}", path))?;
 
-    let file_hash = short_sha256(&bytes);
+    extract_text_from_bytes(&bytes, &format!("{:?}", path))
+}
 
-    let text = pdf_extract::extract_text_from_mem(&bytes)
-        .with_context(|| format!("Failed to extract text from PDF: {:?}", path))?;
-    let page_count = count_pages(&bytes);
+/// Extract text from PDF bytes, using source_name for diagnostics only.
+pub fn extract_text_from_bytes(bytes: &[u8], source_name: &str) -> Result<PdfExtractionResult> {
+    let file_hash = short_sha256(bytes);
+
+    let text = pdf_extract::extract_text_from_mem(bytes)
+        .with_context(|| format!("Failed to extract text from PDF: {}", source_name))?;
+    let page_count = count_pages(bytes);
 
     let cleaned_text = text.trim();
     if cleaned_text.len() < MIN_MEANINGFUL_TEXT_LENGTH {
@@ -68,10 +73,26 @@ pub fn is_pdf(path: &Path) -> bool {
         return false;
     };
     let mut magic = [0u8; 4];
-    file.read_exact(&mut magic).is_ok() && &magic == PDF_MAGIC
+    file.read_exact(&mut magic).is_ok() && is_pdf_bytes(&magic)
+}
+
+/// Check whether bytes start with the PDF magic header.
+pub fn is_pdf_bytes(bytes: &[u8]) -> bool {
+    bytes.starts_with(PDF_MAGIC)
 }
 
 fn has_pdf_extension(path: &Path) -> bool {
     path.extension()
         .is_some_and(|ext| ext.to_string_lossy().to_lowercase() == "pdf")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn detects_pdf_magic_bytes() {
+        assert!(is_pdf_bytes(b"%PDF-1.7\n"));
+        assert!(!is_pdf_bytes(b"not a pdf"));
+    }
 }

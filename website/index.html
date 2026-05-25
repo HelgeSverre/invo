@@ -6,7 +6,7 @@
     <title>invo — receipts in, structured JSON out</title>
     <meta
       name="description"
-      content="A Rust CLI that turns PDF receipts and invoices into structured JSON — vendor, date, total, line items. Runs locally by default via Ollama, with OpenAI and Anthropic as fallback."
+      content="A Rust CLI that turns PDF receipts and invoices into structured JSON — vendor, date, total, line items. Runs locally by default via Ollama, with explicit OpenAI override when configured."
     />
     <link rel="icon" type="image/svg+xml" href="logo.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -62,8 +62,8 @@
 
         <p class="requirements">
           macOS · Linux &nbsp;·&nbsp; Rust <code>1.75+</code> &nbsp;·&nbsp;
-          Ollama <code>localhost:11434</code> &nbsp;·&nbsp; or set
-          <code>OPENAI_API_KEY</code> / <code>ANTHROPIC_API_KEY</code>
+          Ollama <code>localhost:11434</code> &nbsp;·&nbsp; optional
+          <code>OPENAI_API_KEY</code>
         </p>
 
         <div class="hero-cta">
@@ -82,28 +82,28 @@
             <div class="pane-head">
               <span class="pane-title">input · pdf</span>
               <span class="pane-tag"
-                >2025.03.13 - Anthropic - API Credits.pdf</span
+                >2025.09.25 - Sourcegraph - AMP Code Credits.pdf</span
               >
             </div>
             <div class="receipt">
               <div class="receipt-head">
-                <div class="vendor">Anthropic, PBC</div>
+                <div class="vendor">Sourcegraph, Inc.</div>
                 <div class="sub">
-                  548 Market St, PMB 90375 · San Francisco, CA
+                  981 Mission St · San Francisco, CA
                 </div>
               </div>
               <div class="receipt-row">
-                <span>Invoice</span><span>#INV-2312-AC</span>
+                <span>Invoice</span><span>#RCPT-2012-2198</span>
               </div>
               <div class="receipt-row">
-                <span>Date</span><span>2025-03-13</span>
+                <span>Date</span><span>2025-09-25</span>
               </div>
               <div class="receipt-row">
                 <span>Buyer</span><span>Liseth Solutions AS</span>
               </div>
               <br />
               <div class="receipt-row item">
-                <span>API credits — top-up</span><span>$100.00</span>
+                <span>AMP code credits — top-up</span><span>$100.00</span>
               </div>
               <div class="receipt-row item">
                 <span>VAT (25%)</span><span>$25.00</span>
@@ -123,11 +123,11 @@
             </div>
             <pre><span class="tok-punct">{</span>
   <span class="tok-key">"vendor"</span><span class="tok-punct">:</span> <span
-                            class="tok-str">"Anthropic, PBC"</span><span class="tok-punct">,</span>
+                            class="tok-str">"Sourcegraph, Inc."</span><span class="tok-punct">,</span>
   <span class="tok-key">"invoice_date"</span><span class="tok-punct">:</span> <span
-                            class="tok-str">"2025-03-13"</span><span class="tok-punct">,</span>
+                            class="tok-str">"2025-09-25"</span><span class="tok-punct">,</span>
   <span class="tok-key">"invoice_number"</span><span class="tok-punct">:</span> <span
-                            class="tok-str">"INV-2312-AC"</span><span class="tok-punct">,</span>
+                            class="tok-str">"RCPT-2012-2198"</span><span class="tok-punct">,</span>
   <span class="tok-key">"total_amount"</span><span class="tok-punct">:</span> <span class="tok-num">125.00</span><span
                             class="tok-punct">,</span>
   <span class="tok-key">"subtotal"</span><span class="tok-punct">:</span> <span class="tok-num">100.00</span><span
@@ -142,7 +142,7 @@
                             class="tok-str">"Liseth Solutions AS"</span><span class="tok-punct">,</span>
   <span class="tok-key">"items"</span><span class="tok-punct">: [</span>
     <span class="tok-punct">{</span>
-      <span class="tok-key">"description"</span><span class="tok-punct">:</span> <span class="tok-str">"API credits — top-up"</span><span
+      <span class="tok-key">"description"</span><span class="tok-punct">:</span> <span class="tok-str">"AMP code credits — top-up"</span><span
                             class="tok-punct">,</span>
       <span class="tok-key">"quantity"</span><span class="tok-punct">:</span> <span class="tok-num">1</span><span
                             class="tok-punct">,</span>
@@ -183,16 +183,15 @@
           </div>
 
           <div class="feature">
-            <div class="feature-num">02 / PROVIDER CHAIN</div>
-            <h3>Fall back when local isn't enough.</h3>
+            <div class="feature-num">02 / EXPLICIT PROVIDERS</div>
+            <h3>Choose the configured provider for a run.</h3>
             <p>
-              Set <code>OPENAI_API_KEY</code> or
-              <code>ANTHROPIC_API_KEY</code> and invo tries Ollama first, then
-              the others in config order. Per-run override via
-              <code>--provider</code> when you know better.
+              invo uses the first enabled provider by default. Add an OpenAI
+              provider entry with <code>api_key_env</code>, then select it with
+              <code>--provider openai</code> when local extraction is not enough.
             </p>
+            <span class="chip">ollama</span>
             <span class="chip">openai</span>
-            <span class="chip">anthropic</span>
           </div>
 
           <div class="feature">
@@ -209,17 +208,17 @@
           </div>
 
           <div class="feature">
-            <div class="feature-num">04 / BATCH &amp; FILE</div>
-            <h3>Glob, parallelize, rename, archive.</h3>
+            <div class="feature-num">04 / PIPELINE INPUT</div>
+            <h3>Globs, stdin, and file lists.</h3>
             <p>
-              Hand it <code>"receipts/**/*.pdf"</code> and it processes in
-              parallel via rayon. Post-extraction actions rename and file the
-              PDF into <code>{year}/{month}/{vendor}_{total}.pdf</code>. Deduped
-              by SHA-256.
+              Hand it <code>"receipts/**/*.pdf"</code>, pipe one PDF with
+              <code>invo -</code>, or pass newline-delimited paths with
+              <code>--files-from</code>. Batch JSON is compact NDJSON unless you
+              ask for one array.
             </p>
             <span class="chip">glob</span>
-            <span class="chip">rayon</span>
-            <span class="chip">sha-256</span>
+            <span class="chip">stdin</span>
+            <span class="chip">ndjson</span>
           </div>
         </div>
       </div>
@@ -231,8 +230,8 @@
           <div class="section-eyebrow">Quick-start</div>
           <h2>Four shapes of <em>the same command.</em></h2>
           <p>
-            A single binary. One positional argument or a glob. Everything else
-            has a default.
+            A single binary. One positional argument, stdin, a file list, or a
+            glob. Everything else has a default.
           </p>
         </div>
 
@@ -299,9 +298,8 @@
             ><span class="tok-prompt">$</span> <span class="tok-cmd">invo init</span>
 <span class="tok-cmt"># Created config file at ~/.config/invo/config.yaml</span>
 
-<span class="tok-prompt">$</span> <span class="tok-cmd">invo receipt.pdf</span>
-<span class="tok-cmt"># Processing 1 file(s) · ollama (qwen2.5:1.5b) · 1.4s</span>
-<span class="tok-cmt"># → prints structured JSON to stdout</span></pre>
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo receipt.pdf --json</span>
+<span class="tok-cmt"># → compact structured JSON on stdout; diagnostics stay on stderr</span></pre>
           </div>
 
           <div
@@ -321,15 +319,12 @@
             <pre
               id="snippet-batch"
             ><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span
-                        class="tok-str">"receipts/2025/**/*.pdf"</span>
-<span class="tok-cmt"># Expands glob, processes each PDF in parallel via rayon.</span>
-<span class="tok-cmt"># Per-file JSON to stdout; duplicates skipped via SHA-256.</span>
+                        class="tok-str">"receipts/2025/**/*.pdf"</span> <span class="tok-flag">--json</span> <span class="tok-flag">&gt;</span> receipts.ndjson
+<span class="tok-cmt"># Expands the glob and emits one compact JSON object per line.</span>
 
-<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span
-                            class="tok-str">"receipts/2025/**/*.pdf"</span> <span class="tok-flag">| jq</span> <span
-                            class="tok-str">'.invoice.total_amount'</span> <span class="tok-flag">| awk</span> <span
-                            class="tok-str">'{s+=$1} END {print s}'</span>
-<span class="tok-cmt"># Sum totals across a year of receipts. No spreadsheet.</span></pre>
+<span class="tok-prompt">$</span> <span class="tok-cmd">printf</span> <span class="tok-str">'%s\n'</span> receipts/jan.pdf receipts/feb.pdf <span class="tok-flag">&gt;</span> receipts.txt
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span class="tok-flag">--files-from</span> receipts.txt <span class="tok-flag">--json-array</span> <span class="tok-flag">&gt;</span> receipts.json
+<span class="tok-cmt"># Use a file list when another script already selected the PDFs.</span></pre>
           </div>
 
           <div
@@ -352,6 +347,9 @@
                         class="tok-flag">--format</span> yaml
 <span class="tok-cmt"># Human-readable YAML instead of JSON</span>
 
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> <span class="tok-flag">-</span> <span class="tok-flag">&lt;</span> receipt.pdf
+<span class="tok-cmt"># Read PDF bytes from stdin; file metadata is stdin.pdf</span>
+
 <span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--format</span> csv
 <span class="tok-cmt"># Header + row: vendor,date,total,currency,invoice_number</span>
 <span class="tok-cmt"># Pipe-friendly for spreadsheets, ledgers, or hledger imports.</span></pre>
@@ -373,13 +371,13 @@
             </button>
             <pre
               id="snippet-provider"
-            ><span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span
-                        class="tok-flag">--provider</span> anthropic
-<span class="tok-cmt"># Skip the fallback chain — force Claude for this run.</span>
-
+            ><span class="tok-prompt">$</span> <span class="tok-cmd">export</span> OPENAI_API_KEY=sk-...
 <span class="tok-prompt">$</span> <span class="tok-cmd">invo</span> receipt.pdf <span class="tok-flag">--provider</span> openai <span
                             class="tok-flag">-vv</span>
-<span class="tok-cmt"># Trace logs: prompt, raw response, parsed schema, timing.</span></pre>
+<span class="tok-cmt"># Selects the configured OpenAI provider for this run.</span>
+
+<span class="tok-prompt">$</span> <span class="tok-cmd">invo config validate -c config.yaml --json</span>
+<span class="tok-cmt"># Validate config before switching providers in scripts.</span></pre>
           </div>
         </div>
       </div>
@@ -391,9 +389,9 @@
           <div class="section-eyebrow">Configuration</div>
           <h2>One YAML, <em>teach it your vendors.</em></h2>
           <p>
-            Known vendors improve extraction accuracy and let invo apply
-            per-vendor defaults (currency, category). Post-extraction actions
-            file the PDF into a tidy tree.
+            Known vendors improve extraction accuracy, and identity context
+            tells the model which names belong to you, the buyer. The starter
+            file is <code>config.yaml</code>.
           </p>
         </div>
 
@@ -408,15 +406,25 @@
               copy
             </button>
           </div>
-          <pre id="config-sample"><span class="tok-key">llm</span>:
+          <pre id="config-sample"><span class="tok-key">identity</span>:
+  <span class="tok-key">company</span>: <span class="tok-str">"Liseth Solutions AS"</span>
+  <span class="tok-key">email</span>: <span class="tok-str">"helge@example.com"</span>
+  <span class="tok-key">vat_number</span>: <span class="tok-str">"NO123456789MVA"</span>
+
+<span class="tok-key">llm</span>:
   <span class="tok-key">providers</span>:
     - <span class="tok-key">name</span>: ollama
+      <span class="tok-key">enabled</span>: true
       <span class="tok-key">model</span>: <span class="tok-str">"qwen2.5:1.5b"</span>
-      <span class="tok-key">enabled</span>: true
-    - <span class="tok-key">name</span>: anthropic
-      <span class="tok-key">model</span>: <span class="tok-str">"claude-sonnet-4"</span>
-      <span class="tok-key">api_key_env</span>: <span class="tok-str">"ANTHROPIC_API_KEY"</span>
-      <span class="tok-key">enabled</span>: true
+      <span class="tok-key">base_url</span>: <span class="tok-str">"http://localhost:11434"</span>
+    - <span class="tok-key">name</span>: openai
+      <span class="tok-key">enabled</span>: false
+      <span class="tok-key">model</span>: <span class="tok-str">"gpt-4o-mini"</span>
+      <span class="tok-key">api_key_env</span>: <span class="tok-str">"OPENAI_API_KEY"</span>
+  <span class="tok-key">extraction</span>:
+    <span class="tok-key">temperature</span>: 0.1
+    <span class="tok-key">max_tokens</span>: 2000
+    <span class="tok-key">retry_attempts</span>: 2
 
 <span class="tok-key">vendors</span>:
   - <span class="tok-key">name</span>: <span class="tok-str">"Google Workspace"</span>
@@ -424,12 +432,10 @@
                         class="tok-str">"google.com/pay"</span>]
     <span class="tok-key">currency</span>: <span class="tok-str">"EUR"</span>
     <span class="tok-key">category</span>: <span class="tok-str">"software"</span>
+    <span class="tok-key">hints</span>: <span class="tok-str">"Google receipts often use Google Ireland Limited as the legal vendor."</span>
 
-<span class="tok-key">actions</span>:
-  - <span class="tok-key">type</span>: copy
-    <span class="tok-key">destination</span>: <span class="tok-str">"~/Documents/Receipts/{{year}}/{{month}}/"</span>
-    <span class="tok-key">filename</span>: <span class="tok-str">"{{date}}_{{vendor_slug}}_{{total}}.pdf"</span>
-    <span class="tok-key">create_dirs</span>: true
+<span class="tok-key">output</span>:
+  <span class="tok-key">format</span>: json
 </pre>
         </div>
       </div>
