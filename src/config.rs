@@ -1,7 +1,6 @@
 use anyhow::{anyhow, Context, Result};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_yaml::Value;
 use std::path::PathBuf;
 
 pub const DEFAULT_OLLAMA_URL: &str = "http://localhost:11434";

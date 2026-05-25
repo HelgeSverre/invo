@@ -14,6 +14,29 @@ From a clone, for contributors:
 cargo install --path .
 ```
 
+## Shell Completions
+
+invo supports shell completions for Bash, Zsh, and Fish:
+
+**Zsh:**
+```bash
+invo completions --shell zsh > /usr/local/share/zsh/site-functions/_invo
+```
+
+**Bash:**
+```bash
+invo completions --shell bash > /etc/bash_completion.d/invo
+# or for local installation:
+invo completions --shell bash > ~/.local/share/bash-completion/completions/invo
+```
+
+**Fish:**
+```bash
+invo completions --shell fish > ~/.config/fish/completions/invo.fish
+```
+
+After installation, restart your shell or run `exec zsh`/`exec bash` to load the completions.
+
 Requires Rust 1.70+ and, for the default provider, a running [Ollama](https://ollama.com) instance. Provider calls are implemented through [`rig-core`](https://crates.io/crates/rig-core).
 
 ## Quick start
