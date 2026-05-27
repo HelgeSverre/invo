@@ -873,4 +873,188 @@ mod tests {
         .expect("Ollama OCR should succeed for a valid PDF");
         assert_meaningful_text(&text, "Ollama OCR");
     }
+
+    // ocr_post unit tests. Cover the three Auth variants and the three
+    // error-context boundaries (network / status / malformed JSON) without
+    // hitting any real provider.
+    //
+    // Mock server: wiremock. Per-test MockServer is isolated by port.
+
+    #[tokio::test]
+    async fn ocr_post_attaches_bearer_auth_header() {
+        use wiremock::matchers::{header, method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/ocr"))
+            .and(header("authorization", "Bearer secret-xyz"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": 1})))
+            .mount(&server)
+            .await;
+
+        let resp = ocr_post(
+            &reqwest::Client::new(),
+            &format!("{}/v1/ocr", server.uri()),
+            Auth::Bearer("secret-xyz"),
+            &serde_json::json!({"model": "mistral-ocr-latest"}),
+            "Mistral",
+        )
+        .await
+        .expect("ocr_post should succeed when Bearer header matches");
+        assert_eq!(resp["ok"], 1);
+    }
+
+    #[tokio::test]
+    async fn ocr_post_attaches_anthropic_headers() {
+        use wiremock::matchers::{header, method};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(header("x-api-key", "sk-ant-test"))
+            .and(header("anthropic-version", "2023-06-01"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": 2})))
+            .mount(&server)
+            .await;
+
+        let resp = ocr_post(
+            &reqwest::Client::new(),
+            &server.uri(),
+            Auth::AnthropicKey("sk-ant-test"),
+            &serde_json::json!({}),
+            "Anthropic",
+        )
+        .await
+        .expect("ocr_post should succeed when Anthropic headers match");
+        assert_eq!(resp["ok"], 2);
+    }
+
+    #[tokio::test]
+    async fn ocr_post_omits_auth_headers_when_auth_is_none() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({"ok": 3})))
+            .mount(&server)
+            .await;
+
+        ocr_post(
+            &reqwest::Client::new(),
+            &server.uri(),
+            Auth::None,
+            &serde_json::json!({}),
+            "Ollama",
+        )
+        .await
+        .expect("ocr_post should succeed with no auth");
+
+        let received = server
+            .received_requests()
+            .await
+            .expect("wiremock should record received requests");
+        assert_eq!(received.len(), 1);
+        let req = &received[0];
+        assert!(
+            req.headers.get("authorization").is_none(),
+            "Auth::None must not attach an Authorization header"
+        );
+        assert!(
+            req.headers.get("x-api-key").is_none(),
+            "Auth::None must not attach an x-api-key header"
+        );
+        assert!(
+            req.headers.get("anthropic-version").is_none(),
+            "Auth::None must not attach an anthropic-version header"
+        );
+    }
+
+    #[tokio::test]
+    async fn ocr_post_wraps_network_errors_with_provider_label() {
+        // Port 1 is reserved and refuses connections — fast, deterministic
+        // failure for the network-error path. Tight client timeout keeps the
+        // test snappy if the platform black-holes the SYN instead of RST.
+        let http = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(500))
+            .build()
+            .expect("test client");
+
+        let err = ocr_post(
+            &http,
+            "http://127.0.0.1:1/",
+            Auth::None,
+            &serde_json::json!({}),
+            "Mistral",
+        )
+        .await
+        .expect_err("connection to port 1 must fail");
+
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("Mistral OCR request failed (network)"),
+            "network error must be labeled with the provider; got: {chain}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ocr_post_wraps_status_errors_with_provider_label() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(ResponseTemplate::new(500))
+            .mount(&server)
+            .await;
+
+        let err = ocr_post(
+            &reqwest::Client::new(),
+            &server.uri(),
+            Auth::None,
+            &serde_json::json!({}),
+            "OpenAI",
+        )
+        .await
+        .expect_err("5xx must propagate as an error");
+
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("OpenAI OCR returned an error status"),
+            "status error must be labeled with the provider; got: {chain}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ocr_post_wraps_malformed_json_with_provider_label() {
+        use wiremock::matchers::method;
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("content-type", "application/json")
+                    .set_body_string("not valid json at all"),
+            )
+            .mount(&server)
+            .await;
+
+        let err = ocr_post(
+            &reqwest::Client::new(),
+            &server.uri(),
+            Auth::None,
+            &serde_json::json!({}),
+            "Anthropic",
+        )
+        .await
+        .expect_err("non-JSON response must propagate as an error");
+
+        let chain = format!("{err:#}");
+        assert!(
+            chain.contains("Anthropic OCR returned malformed JSON"),
+            "JSON-parse error must be labeled with the provider; got: {chain}"
+        );
+    }
 }

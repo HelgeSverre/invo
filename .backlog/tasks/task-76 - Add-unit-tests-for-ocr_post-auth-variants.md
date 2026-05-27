@@ -1,9 +1,10 @@
 ---
 id: TASK-76
 title: Add unit tests for ocr_post auth variants
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-27 13:24'
+updated_date: '2026-05-27 14:22'
 labels:
   - test
   - refactor-followup
@@ -26,18 +27,24 @@ Surface area: `src/extractor.rs` `Auth`, `ocr_post`, the helper at lines ~107-13
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ocr_post is exercised by at least one test per Auth variant against a mock server
-- [ ] #2 Each test asserts the request headers reach the server correctly (e.g. Authorization: Bearer X for Auth::Bearer; x-api-key + anthropic-version for AnthropicKey; no auth header for None)
-- [ ] #3 At least one test covers the network-error path and at least one covers the error_for_status path with the wrapped context message present
-- [ ] #4 Tests pass with cargo test and do not depend on live network access
+- [x] #1 ocr_post is exercised by at least one test per Auth variant against a mock server
+- [x] #2 Each test asserts the request headers reach the server correctly (e.g. Authorization: Bearer X for Auth::Bearer; x-api-key + anthropic-version for AnthropicKey; no auth header for None)
+- [x] #3 At least one test covers the network-error path and at least one covers the error_for_status path with the wrapped context message present
+- [x] #4 Tests pass with cargo test and do not depend on live network access
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Added 6 wiremock-based unit tests for ocr_post in src/extractor.rs covering: Bearer auth header attachment, AnthropicKey + anthropic-version header attachment, Auth::None header absence (verified via received_requests inspection), and the three error-context wrappers (network / error_for_status / malformed JSON). Tests do not require network access — wiremock spins per-test MockServer on an ephemeral port. Added wiremock 0.6.5 as a dev-dependency. Test count: 118 + 16 -> 124 + 16. DoD #4 (docs) and #5 (notes) not applicable — no behavior or user-facing output changed.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Acceptance criteria are satisfied and checked
-- [ ] #2 Relevant tests are added or updated
-- [ ] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
+- [x] #1 Acceptance criteria are satisfied and checked
+- [x] #2 Relevant tests are added or updated
+- [x] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
 - [ ] #4 Documentation/help/config examples are updated when behavior or user-facing output changes
 - [ ] #5 Backlog task notes and final summary describe what changed and how it was verified
-- [ ] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
+- [x] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
 <!-- DOD:END -->
