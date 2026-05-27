@@ -316,6 +316,27 @@ fn init_respects_explicit_config_path_and_requires_force_to_overwrite() {
 }
 
 #[test]
+fn verbose_flag_parses_after_subcommand_name() {
+    // Tailing flags onto subcommand names is how both humans and agents
+    // habitually compose CLIs. Before TASK-54 only --json and --config were
+    // global = true, so `invo config validate -v` errored with
+    // "unexpected argument '-v'". Pin that --verbose now works in that slot.
+    let output = invo()
+        .args(["config", "validate", "-v", "-c", "config.yaml"])
+        .env_remove("RUST_LOG")
+        .output()
+        .expect("invo should run");
+
+    assert!(
+        output.status.success(),
+        "config validate -v should parse; stderr={}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8(output.stdout).expect("stdout utf-8");
+    assert!(stdout.contains("Status: valid"));
+}
+
+#[test]
 fn rejects_files_from_stdin_with_positional_stdin() {
     // Pipe something into stdin so the process doesn't block waiting on a tty.
     let mut child = invo()

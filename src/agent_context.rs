@@ -55,6 +55,25 @@ pub fn handle_agent_context(options: &AgentContextOptions) -> Result<()> {
                 ]
             }
         },
+        "flag_placement": {
+            "global": {
+                "flags": ["--json", "--config", "--verbose"],
+                "note": "Global flags parse anywhere on the command line, before or after the subcommand name.",
+                "examples": [
+                    "invo config validate -v -c config.yaml --json",
+                    "invo -v config validate -c config.yaml --json"
+                ]
+            },
+            "subcommand_only": {
+                "flags": ["--format", "--json-array", "--pretty", "--provider", "--files-from"],
+                "note": "These flags apply only to the default extraction command and must precede the positional FILE arguments (i.e. immediately after `invo`, not after a `config`/`agent-context`/`completions` subcommand name).",
+                "examples": [
+                    "invo --format yaml receipt.pdf",
+                    "invo --json-array \"receipts/**/*.pdf\" > out.json",
+                    "invo --provider openai receipt.pdf --json"
+                ]
+            }
+        },
         "config": {
             "path": loaded.path,
             "exists": loaded.exists,

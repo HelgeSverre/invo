@@ -1,8 +1,9 @@
 ---
 id: TASK-54
 title: Mark common CLI flags global so they work after subcommand names
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:09'
 labels:
   - code-review
@@ -24,7 +25,7 @@ src/main.rs:39-65 marks only --json and --config as global = true. Invocations l
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 --verbose is marked global = true and works after every subcommand name
-- [ ] #2 agent-context output and CLI help document the required placement for any flag that cannot be global (--format, --json-array, --pretty, --provider) and includes a working example
-- [ ] #3 Regression test asserts 'invo config validate -v' parses without error
+- [x] #1 --verbose is marked global = true and works after every subcommand name
+- [x] #2 agent-context output and CLI help document the required placement for any flag that cannot be global (--format, --json-array, --pretty, --provider) and includes a working example (added "flag_placement" block with global vs subcommand_only sections and runnable examples)
+- [x] #3 Regression test asserts 'invo config validate -v' parses without error (verbose_flag_parses_after_subcommand_name in tests/cli_output.rs)
 <!-- AC:END -->

@@ -69,7 +69,7 @@ struct Cli {
     provider: Option<ProviderName>,
 
     /// Verbose output (-v for debug, -vv for trace)
-    #[arg(short, long, action = clap::ArgAction::Count)]
+    #[arg(short, long, action = clap::ArgAction::Count, global = true)]
     verbose: u8,
 }
 
