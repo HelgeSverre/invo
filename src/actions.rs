@@ -5,24 +5,117 @@ use std::process::Command;
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::config::{Action, ExportAction, FileAction, HookAction, OnError, OutputFormat};
+use crate::config::{
+    Action, ExportAction, FileAction, FileActionKind, HookAction, OnError, OutputFormat,
+};
 use crate::invoice::ExtractionResult;
 
-impl Action {
+/// Behavior shared by every post-extraction action variant. Each variant owns
+/// its own label, enabled-check, and execution — the dispatch in `run_actions`
+/// stays generic over the trait. `impl PostAction for Action` delegates to the
+/// concrete inner type so callers can keep iterating over `&[Action]` from
+/// config without caring which variant is which.
+trait PostAction {
+    fn label(&self) -> &'static str;
+    fn enabled(&self) -> bool;
+    fn run(
+        &self,
+        result: &ExtractionResult,
+        source_pdf_bytes: &[u8],
+        placeholders: &HashMap<&'static str, String>,
+    ) -> Result<()>;
+}
+
+impl PostAction for FileAction {
+    fn label(&self) -> &'static str {
+        match self.kind {
+            FileActionKind::Copy => "copy",
+            FileActionKind::Move => "move",
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn run(
+        &self,
+        result: &ExtractionResult,
+        source_pdf_bytes: &[u8],
+        placeholders: &HashMap<&'static str, String>,
+    ) -> Result<()> {
+        match self.kind {
+            FileActionKind::Copy => run_copy(self, result, source_pdf_bytes, placeholders),
+            FileActionKind::Move => run_move(self, result, source_pdf_bytes, placeholders),
+        }
+    }
+}
+
+impl PostAction for ExportAction {
+    fn label(&self) -> &'static str {
+        "export"
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn run(
+        &self,
+        result: &ExtractionResult,
+        _source_pdf_bytes: &[u8],
+        placeholders: &HashMap<&'static str, String>,
+    ) -> Result<()> {
+        run_export(self, result, placeholders)
+    }
+}
+
+impl PostAction for HookAction {
+    fn label(&self) -> &'static str {
+        "hook"
+    }
+
+    fn enabled(&self) -> bool {
+        self.enabled
+    }
+
+    fn run(
+        &self,
+        result: &ExtractionResult,
+        _source_pdf_bytes: &[u8],
+        placeholders: &HashMap<&'static str, String>,
+    ) -> Result<()> {
+        run_hook(self, result, placeholders)
+    }
+}
+
+impl PostAction for Action {
     fn label(&self) -> &'static str {
         match self {
-            Action::Copy(_) => "copy",
-            Action::Move(_) => "move",
-            Action::Export(_) => "export",
-            Action::Hook(_) => "hook",
+            Action::File(a) => a.label(),
+            Action::Export(a) => a.label(),
+            Action::Hook(a) => a.label(),
         }
     }
 
     fn enabled(&self) -> bool {
         match self {
-            Action::Copy(a) | Action::Move(a) => a.enabled,
-            Action::Export(a) => a.enabled,
-            Action::Hook(h) => h.enabled,
+            Action::File(a) => a.enabled(),
+            Action::Export(a) => a.enabled(),
+            Action::Hook(a) => a.enabled(),
+        }
+    }
+
+    fn run(
+        &self,
+        result: &ExtractionResult,
+        source_pdf_bytes: &[u8],
+        placeholders: &HashMap<&'static str, String>,
+    ) -> Result<()> {
+        match self {
+            Action::File(a) => a.run(result, source_pdf_bytes, placeholders),
+            Action::Export(a) => a.run(result, source_pdf_bytes, placeholders),
+            Action::Hook(a) => a.run(result, source_pdf_bytes, placeholders),
         }
     }
 }
@@ -41,7 +134,7 @@ pub fn run_actions(
         if !action.enabled() {
             continue;
         }
-        if let Err(err) = run_one(action, result, source_pdf_bytes, &placeholders) {
+        if let Err(err) = action.run(result, source_pdf_bytes, &placeholders) {
             match action {
                 Action::Hook(h) if matches!(h.on_error, OnError::Abort) => return Err(err),
                 _ => tracing::error!("Action failed (continuing): {:?}: {err:#}", action.label()),
@@ -49,20 +142,6 @@ pub fn run_actions(
         }
     }
     Ok(())
-}
-
-fn run_one(
-    action: &Action,
-    result: &ExtractionResult,
-    source_pdf_bytes: &[u8],
-    placeholders: &HashMap<&'static str, String>,
-) -> Result<()> {
-    match action {
-        Action::Copy(a) => run_copy(a, result, source_pdf_bytes, placeholders),
-        Action::Move(a) => run_move(a, result, source_pdf_bytes, placeholders),
-        Action::Export(a) => run_export(a, result, placeholders),
-        Action::Hook(h) => run_hook(h, result, placeholders),
-    }
 }
 
 fn run_copy(
@@ -396,7 +475,8 @@ mod tests {
         let src = dir.join("source.pdf");
         fs::write(&src, b"%PDF-1.7\nbody\n").unwrap();
         let result = fixture("Acme", "receipt.pdf", src.to_str().unwrap());
-        let action = Action::Copy(FileAction {
+        let action = Action::File(FileAction {
+            kind: FileActionKind::Copy,
             enabled: true,
             destination: dir.join("out/{year}").to_string_lossy().to_string(),
             filename: Some("{vendor}-{invoice_number}.pdf".into()),
@@ -415,7 +495,8 @@ mod tests {
         let src = dir.join("source.pdf");
         fs::write(&src, b"%PDF-1.7\n").unwrap();
         let result = fixture("Acme", "receipt.pdf", src.to_str().unwrap());
-        let action = Action::Move(FileAction {
+        let action = Action::File(FileAction {
+            kind: FileActionKind::Move,
             enabled: true,
             destination: dir.join("out").to_string_lossy().to_string(),
             filename: None,

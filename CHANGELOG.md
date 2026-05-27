@@ -13,7 +13,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   under nested subcommands (TASK-8). Scripts using the old form will fail with
   a Clap parse error.
 
+- `actions: [{ type: copy | move, ... }]` config shape. File-system actions
+  now use a single `type: file` discriminator with a `kind: copy | move`
+  field (TASK-77). The old shape will fail strict validation with
+  `unknown variant`. Pre-release schema change — no migration shim.
+
 ### Changed
+
+- `actions: [{ type: file, kind: copy | move, ... }]` is the new YAML shape
+  for filesystem actions. Internally backed by a `PostAction` trait so each
+  action variant carries its own dispatch (TASK-77). Migration:
+
+  ```yaml
+  # Before
+  - type: copy
+    destination: archive/
+  - type: move
+    destination: trash/
+
+  # After
+  - type: file
+    kind: copy
+    destination: archive/
+  - type: file
+    kind: move
+    destination: trash/
+  ```
+
 
 - Config management moved from a single `--validate` flag to discoverable
   subcommands. Migration mapping:

@@ -429,13 +429,15 @@ Templates in `destination`, `filename`, and hook `args` substitute these placeho
 ```yaml
 actions:
   # Copy the source PDF to an organized archive.
-  - type: copy
+  - type: file
+    kind: copy
     destination: "~/Documents/Receipts/{year}/{month}"
     filename: "{date}-{vendor}-{invoice_number}.pdf"
     create_dirs: true
 
   # Move (delete original after the copy succeeds).
-  - type: move
+  - type: file
+    kind: move
     destination: "/tmp/invo-processed"
     create_dirs: true
 

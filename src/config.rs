@@ -271,15 +271,26 @@ pub enum OutputFormat {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Action {
-    Copy(FileAction),
-    Move(FileAction),
+    File(FileAction),
     Export(ExportAction),
     Hook(HookAction),
+}
+
+/// Whether a `file` action copies the source or moves it (delete original
+/// after the copy succeeds). The discriminator lives on the struct itself
+/// so `impl PostAction for FileAction` can dispatch on it directly.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "lowercase")]
+pub enum FileActionKind {
+    Copy,
+    Move,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct FileAction {
+    pub kind: FileActionKind,
+
     #[serde(default = "default_true")]
     pub enabled: bool,
 
