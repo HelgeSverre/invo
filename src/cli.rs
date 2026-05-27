@@ -11,7 +11,7 @@ use crate::config::{OutputFormat, ProviderName};
 #[command(
     after_help = "Examples:\n  invo receipt.pdf\n  invo - < receipt.pdf\n  invo --files-from receipts.txt --json\n  invo \"receipts/**/*.pdf\" --json > receipts.ndjson\n  invo \"receipts/**/*.pdf\" --json-array > receipts.json\n  invo -c config.yaml config validate\n  invo config show --effective --json\n  invo agent-context --json"
 )]
-pub struct Cli {
+pub(crate) struct Cli {
     #[command(subcommand)]
     pub command: Option<Commands>,
 
@@ -53,7 +53,7 @@ pub struct Cli {
 }
 
 #[derive(Subcommand)]
-pub enum Commands {
+pub(crate) enum Commands {
     /// Initialize a new config file
     #[command(
         after_help = "Examples:\n  invo init\n  invo -c ./config.yaml init\n  invo init -c ./config.yaml --force"
@@ -93,7 +93,7 @@ pub enum Commands {
 }
 
 #[derive(Subcommand)]
-pub enum ConfigCommand {
+pub(crate) enum ConfigCommand {
     /// Print the config path invo will use
     Path,
 
