@@ -154,7 +154,10 @@ pub struct ExtractionSettings {
     #[serde(default = "default_max_tokens")]
     pub max_tokens: u32,
 
-    #[serde(default = "default_retry_attempts")]
+    #[serde(
+        default = "default_retry_attempts",
+        deserialize_with = "deserialize_retry_attempts"
+    )]
     pub retry_attempts: u32,
 
     /// Cap on raw PDF text length (chars) sent to the LLM. Defends against
@@ -162,6 +165,14 @@ pub struct ExtractionSettings {
     /// Pdf-extract output beyond this length is truncated at a char boundary.
     #[serde(default = "default_max_pdf_text_chars")]
     pub max_pdf_text_chars: usize,
+
+    /// Per-request timeout (seconds) for the LLM extraction call. Bounds both
+    /// the underlying reqwest transport and the awaited tokio future so a
+    /// hung Ollama daemon or unresponsive cloud endpoint cannot stall the
+    /// process. When unset, defaults resolve at runtime based on the active
+    /// provider (`Ollama` → 120s, hosted APIs → 60s).
+    #[serde(default)]
+    pub timeout_secs: Option<u64>,
 }
 
 impl Default for ExtractionSettings {
@@ -171,6 +182,7 @@ impl Default for ExtractionSettings {
             max_tokens: default_max_tokens(),
             retry_attempts: default_retry_attempts(),
             max_pdf_text_chars: default_max_pdf_text_chars(),
+            timeout_secs: None,
         }
     }
 }
@@ -183,6 +195,26 @@ fn default_max_tokens() -> u32 {
 }
 fn default_retry_attempts() -> u32 {
     2
+}
+
+/// Upper bound for `llm.extraction.retry_attempts`. A typo like
+/// `retry_attempts: 4294967295` (or a malicious config) would otherwise
+/// schedule billions of sequential requests against the configured provider.
+/// Ten is generous for any real workload; anything beyond that signals a bug.
+pub const MAX_RETRY_ATTEMPTS: u32 = 10;
+
+fn deserialize_retry_attempts<'de, D>(deserializer: D) -> std::result::Result<u32, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    use serde::de::Error;
+    let value = u32::deserialize(deserializer)?;
+    if value > MAX_RETRY_ATTEMPTS {
+        return Err(D::Error::custom(format!(
+            "llm.extraction.retry_attempts must be <= {MAX_RETRY_ATTEMPTS}, got {value}"
+        )));
+    }
+    Ok(value)
 }
 fn default_max_pdf_text_chars() -> usize {
     32_768
@@ -426,5 +458,34 @@ mod tests {
 
         let error_msg = error.to_string();
         assert!(error_msg.contains("vatnumbber"));
+    }
+
+    #[test]
+    fn rejects_retry_attempts_above_bound() {
+        // 4_294_967_295 (u32::MAX) would otherwise schedule billions of
+        // sequential requests against the LLM provider. The custom
+        // deserializer enforces MAX_RETRY_ATTEMPTS at parse time.
+        let error =
+            parse_config("llm:\n  extraction:\n    retry_attempts: 4294967295\n")
+                .expect_err("out-of-range retry_attempts should fail to parse");
+
+        let msg = error.to_string();
+        assert!(
+            msg.contains("retry_attempts"),
+            "error should name the bad field, got: {msg}"
+        );
+        assert!(
+            msg.contains(&MAX_RETRY_ATTEMPTS.to_string()),
+            "error should cite the upper bound, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn accepts_retry_attempts_at_bound() {
+        let config = parse_config(&format!(
+            "llm:\n  extraction:\n    retry_attempts: {MAX_RETRY_ATTEMPTS}\n"
+        ))
+        .expect("retry_attempts == bound should parse");
+        assert_eq!(config.llm.extraction.retry_attempts, MAX_RETRY_ATTEMPTS);
     }
 }

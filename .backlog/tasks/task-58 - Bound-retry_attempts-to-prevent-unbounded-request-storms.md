@@ -1,8 +1,9 @@
 ---
 id: TASK-58
 title: Bound retry_attempts to prevent unbounded request storms
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:10'
 labels:
   - code-review
@@ -23,7 +24,7 @@ src/config.rs:167 declares retry_attempts: u32 with no upper bound. A configurat
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 retry_attempts is capped at a sensible max (e.g. 10) via validation in parse_config_str or a custom deserializer
-- [ ] #2 Out-of-range values produce a clear parse error citing the bound
-- [ ] #3 Unit test pins the rejection
+- [x] #1 retry_attempts is capped at a sensible max (e.g. 10) via validation in parse_config_str or a custom deserializer (custom deserializer, MAX_RETRY_ATTEMPTS = 10)
+- [x] #2 Out-of-range values produce a clear parse error citing the bound ("llm.extraction.retry_attempts must be <= 10, got <value>")
+- [x] #3 Unit test pins the rejection (rejects_retry_attempts_above_bound + accepts_retry_attempts_at_bound)
 <!-- AC:END -->
