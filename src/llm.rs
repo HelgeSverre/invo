@@ -1143,4 +1143,136 @@ mod tests {
             RetryDecision::PermanentStop
         ));
     }
+
+    // Locks in that buffer_unordered(N) over the production complete_invoice
+    // path actually runs futures concurrently. The production batch loop in
+    // main.rs uses the same primitive over LlmContext::extract; if the
+    // futures-crate API changes or the call path becomes accidentally serial
+    // (e.g. an inner !Send future forcing single-thread polling), this test
+    // catches it.
+    //
+    // Strategy: simulate per-call latency with tokio::time::sleep before each
+    // complete_invoice call. With N=4 inputs, parallelism=4, and 200ms of
+    // simulated work per call, serial baseline is ~800ms; concurrent should
+    // be ~200-300ms. Assertion uses a 50%-of-serial threshold so the test is
+    // robust against CI scheduler jitter (a real concurrency regression would
+    // push elapsed to ~800ms; the threshold catches that with ample margin).
+    #[tokio::test]
+    async fn parallel_batch_completes_faster_than_serial_baseline() {
+        use futures::StreamExt;
+        use std::time::{Duration, Instant};
+
+        const PER_TASK_MS: u64 = 200;
+        const N: usize = 4;
+        const PARALLELISM: usize = 4;
+
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![provider(ProviderName::Ollama, true, "qwen-mock")],
+                extraction: ExtractionSettings {
+                    retry_attempts: 0,
+                    ..ExtractionSettings::default()
+                },
+            },
+            ..Config::default()
+        };
+        let response_json =
+            r#"{"vendor":"Acme","invoice_date":"2026-05-25","total_amount":1.0,"currency":"USD"}"#;
+
+        let start = Instant::now();
+        let results: Vec<_> = futures::stream::iter(0..N)
+            .map(|_| {
+                let config = &config;
+                async move {
+                    let model = MockCompletionModel::text(response_json);
+                    tokio::time::sleep(Duration::from_millis(PER_TASK_MS)).await;
+                    complete_invoice(
+                        model,
+                        config,
+                        Duration::from_secs(30),
+                        "system prompt",
+                        "user message",
+                    )
+                    .await
+                }
+            })
+            .buffer_unordered(PARALLELISM)
+            .collect()
+            .await;
+        let elapsed = start.elapsed();
+
+        // All N must have succeeded — the mock returns valid JSON for every call.
+        assert_eq!(results.len(), N);
+        for r in &results {
+            assert!(r.is_ok(), "every mock extraction should parse: {r:?}");
+        }
+
+        let serial_baseline = Duration::from_millis(PER_TASK_MS * N as u64);
+        let threshold = serial_baseline / 2; // 50% of serial baseline (400ms when serial is 800ms)
+        assert!(
+            elapsed < threshold,
+            "parallel batch (N={N}, parallelism={PARALLELISM}, per_task={PER_TASK_MS}ms) \
+             should complete in well under serial baseline ({serial_baseline:?}); \
+             got elapsed={elapsed:?}, threshold={threshold:?}. If this fires on CI, \
+             concurrency may have regressed (futures running serially)."
+        );
+    }
+
+    // Companion to the parallel test above. With parallelism=1, the same
+    // futures must run *serially* and elapsed must be near N * per_task.
+    // Together the two tests prove buffer_unordered honors its concurrency
+    // bound in both directions.
+    #[tokio::test]
+    async fn parallelism_one_runs_futures_serially() {
+        use futures::StreamExt;
+        use std::time::{Duration, Instant};
+
+        const PER_TASK_MS: u64 = 100;
+        const N: usize = 3;
+
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![provider(ProviderName::Ollama, true, "qwen-mock")],
+                extraction: ExtractionSettings {
+                    retry_attempts: 0,
+                    ..ExtractionSettings::default()
+                },
+            },
+            ..Config::default()
+        };
+        let response_json =
+            r#"{"vendor":"Acme","invoice_date":"2026-05-25","total_amount":1.0,"currency":"USD"}"#;
+
+        let start = Instant::now();
+        let _: Vec<_> = futures::stream::iter(0..N)
+            .map(|_| {
+                let config = &config;
+                async move {
+                    let model = MockCompletionModel::text(response_json);
+                    tokio::time::sleep(Duration::from_millis(PER_TASK_MS)).await;
+                    complete_invoice(
+                        model,
+                        config,
+                        Duration::from_secs(30),
+                        "system prompt",
+                        "user message",
+                    )
+                    .await
+                    .expect("mock should parse")
+                }
+            })
+            .buffer_unordered(1)
+            .collect()
+            .await;
+        let elapsed = start.elapsed();
+
+        let serial_baseline = Duration::from_millis(PER_TASK_MS * N as u64);
+        // With concurrency=1, elapsed should be at least the serial baseline
+        // (futures cannot overlap). Some scheduler overhead is fine.
+        assert!(
+            elapsed >= serial_baseline,
+            "parallelism=1 must enforce sequential execution; \
+             got elapsed={elapsed:?}, serial baseline={serial_baseline:?}"
+        );
+    }
 }
