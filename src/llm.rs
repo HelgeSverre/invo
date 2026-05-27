@@ -267,13 +267,17 @@ fn build_mistral_client(
         .build()?)
 }
 
+#[derive(Debug)]
 enum RetryDecision {
     Retry { delay: Duration },
     Stop,
+    PermanentStop,
 }
 
 fn classify_retry(error: &anyhow::Error, attempt: u32, max_retries: u32) -> RetryDecision {
-    if attempt < max_retries && !is_permanent_error(error) {
+    if is_permanent_error(error) {
+        RetryDecision::PermanentStop
+    } else if attempt < max_retries {
         RetryDecision::Retry {
             delay: retry_delay(attempt),
         }
@@ -312,15 +316,14 @@ where
                     );
                     tokio::time::sleep(delay).await;
                 }
-                RetryDecision::Stop => {
-                    if is_permanent_error(&error) {
-                        tracing::warn!(
-                            attempt = attempt + 1,
-                            "LLM extraction hit a permanent error; not retrying: {error}"
-                        );
-                    }
+                RetryDecision::PermanentStop => {
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        "LLM extraction hit a permanent error; not retrying: {error}"
+                    );
                     return Err(error);
                 }
+                RetryDecision::Stop => return Err(error),
             },
         }
     }
@@ -1107,23 +1110,37 @@ mod tests {
                 delay > Duration::ZERO,
                 "transient retry must use a positive backoff delay"
             ),
-            RetryDecision::Stop => {
-                panic!("expected Retry on transient error with attempts remaining")
+            other => {
+                panic!("expected Retry on transient error with attempts remaining, got {other:?}")
             }
         }
     }
 
     #[test]
     fn classify_retry_stops_when_retry_budget_is_exhausted() {
-        // attempt == max_retries means we've already used the last retry.
+        // Transient error after the last attempt — budget exhausted, not permanent.
         let err = anyhow!("HTTP 429 Too Many Requests");
         assert!(matches!(classify_retry(&err, 2, 2), RetryDecision::Stop));
     }
 
     #[test]
-    fn classify_retry_stops_immediately_on_permanent_errors() {
+    fn classify_retry_permanent_stops_immediately_on_permanent_errors() {
         // A 401 is permanent — retrying wastes tokens and a 429 budget.
         let err = anyhow!("HTTP 401 Unauthorized: invalid api key");
-        assert!(matches!(classify_retry(&err, 0, 5), RetryDecision::Stop));
+        assert!(matches!(
+            classify_retry(&err, 0, 5),
+            RetryDecision::PermanentStop
+        ));
+    }
+
+    #[test]
+    fn classify_retry_permanent_wins_over_exhausted_budget() {
+        // Permanent + budget exhausted: classify as permanent so the caller
+        // emits the "not retrying" warn, not just a quiet propagation.
+        let err = anyhow!("HTTP 401 Unauthorized");
+        assert!(matches!(
+            classify_retry(&err, 2, 2),
+            RetryDecision::PermanentStop
+        ));
     }
 }

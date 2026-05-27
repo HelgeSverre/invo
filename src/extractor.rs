@@ -20,13 +20,14 @@ struct PdfText {
 async fn resolve_pdf_text(
     input: &InvoiceInput,
     config: &Config,
-    llm: &LlmContext,
+    http: &reqwest::Client,
+    provider: &Provider,
 ) -> Result<PdfText> {
     let mut pdf_result = extract_text(&input.bytes)
         .with_context(|| format!("Failed to extract text from PDF: {}", input.path))?;
 
     if pdf_result.text.len() < MIN_MEANINGFUL_TEXT_LENGTH {
-        let resolved = resolve_ocr(&config.processing.ocr, llm.provider())?;
+        let resolved = resolve_ocr(&config.processing.ocr, provider)?;
         match resolved {
             ResolvedOcr::Disabled => bail!(
                 "PDF appears scanned (only {} chars of native text). Configure processing.ocr.mode to enable OCR (mistral | anthropic | openai | ollama).",
@@ -35,7 +36,7 @@ async fn resolve_pdf_text(
             other => {
                 tracing::info!("Falling back to OCR via {}", other.label());
                 pdf_result.text = other
-                    .run(llm.http(), &input.bytes)
+                    .run(http, &input.bytes)
                     .await
                     .context("OCR fallback failed")?;
                 pdf_result.ocr_used = true;
@@ -63,7 +64,7 @@ pub async fn extract_invoice(
     tracing::info!("Processing: {}", input.path);
     let start = Instant::now();
 
-    let pdf = resolve_pdf_text(input, config, llm).await?;
+    let pdf = resolve_pdf_text(input, config, llm.http(), llm.provider()).await?;
     tracing::debug!(
         "Using {} chars from {} pages (ocr_used={})",
         pdf.text.len(),
