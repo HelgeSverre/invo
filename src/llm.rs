@@ -293,7 +293,6 @@ mod tests {
             enabled,
             model: model.to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: None,
         }
     }
@@ -504,7 +503,6 @@ mod tests {
             enabled: true,
             model: "qwen:7b".to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: None,
         };
 
@@ -520,7 +518,6 @@ mod tests {
             enabled: true,
             model: "qwen:7b".to_string(),
             base_url: Some("http://custom-ollama:11434".to_string()),
-            model_path: None,
             api_key_env: None,
         };
 
@@ -535,7 +532,6 @@ mod tests {
             enabled: true,
             model: "gpt-4".to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: None,
         };
 
@@ -553,7 +549,6 @@ mod tests {
             enabled: true,
             model: "gpt-4".to_string(),
             base_url: Some("https://proxy.corp.local/openai/v1".to_string()),
-            model_path: None,
             api_key_env: None,
         };
 
