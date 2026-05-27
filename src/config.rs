@@ -584,8 +584,37 @@ pub fn load_config_status(path: Option<&PathBuf>) -> Result<LoadedConfig> {
 }
 
 pub fn parse_config_str(contents: &str, config_path: &std::path::Path) -> Result<Config> {
-    serde_yaml::from_str(contents)
-        .map_err(|e| anyhow!("Failed to parse config file: {:?}: {}", config_path, e))
+    serde_yaml::from_str::<Config>(contents).map_err(|e| {
+        let msg = e.to_string();
+        match action_migration_hint(&msg) {
+            Some(hint) => anyhow!(
+                "Failed to parse config file: {:?}: {}\n\n{}",
+                config_path,
+                msg,
+                hint
+            ),
+            None => anyhow!("Failed to parse config file: {:?}: {}", config_path, msg),
+        }
+    })
+}
+
+/// Detect the pre-TASK-77 action shape (`type: copy` / `type: move`) and
+/// surface an actionable migration hint instead of relying on serde's
+/// generic "unknown variant" message. Only fires for `copy` and `move`
+/// because those were the pre-TASK-77 variants the old YAML used; any
+/// other "unknown variant" error stays generic.
+fn action_migration_hint(serde_error_msg: &str) -> Option<&'static str> {
+    if serde_error_msg.contains("unknown variant `copy`") {
+        Some(
+            "hint: `type: copy` was renamed in TASK-77. Use:\n\n  - type: file\n    kind: copy\n    destination: ...\n\nSee CHANGELOG.md (Removed section) for full migration notes.",
+        )
+    } else if serde_error_msg.contains("unknown variant `move`") {
+        Some(
+            "hint: `type: move` was renamed in TASK-77. Use:\n\n  - type: file\n    kind: move\n    destination: ...\n\nSee CHANGELOG.md (Removed section) for full migration notes.",
+        )
+    } else {
+        None
+    }
 }
 
 #[cfg(test)]
@@ -616,6 +645,42 @@ mod tests {
 
         let error_msg = error.to_string();
         assert!(error_msg.contains("vatnumbber"));
+    }
+
+    #[test]
+    fn rejects_pre_task77_action_type_copy_with_migration_hint() {
+        let yaml = "actions:\n  - type: copy\n    destination: archive/\n";
+        let error = parse_config(yaml).expect_err("type: copy must fail post-TASK-77");
+        let msg = error.to_string();
+        assert!(msg.contains("type: file"), "got: {msg}");
+        assert!(msg.contains("kind: copy"), "got: {msg}");
+        assert!(msg.contains("TASK-77"), "got: {msg}");
+        assert!(msg.contains("CHANGELOG"), "got: {msg}");
+    }
+
+    #[test]
+    fn rejects_pre_task77_action_type_move_with_migration_hint() {
+        let yaml = "actions:\n  - type: move\n    destination: trash/\n";
+        let error = parse_config(yaml).expect_err("type: move must fail post-TASK-77");
+        let msg = error.to_string();
+        assert!(msg.contains("type: file"), "got: {msg}");
+        assert!(msg.contains("kind: move"), "got: {msg}");
+        assert!(msg.contains("TASK-77"), "got: {msg}");
+    }
+
+    #[test]
+    fn unknown_variant_for_unrelated_field_stays_generic() {
+        // Sanity check: the migration hint only fires for the two pre-TASK-77
+        // action variants. Other "unknown variant" errors (e.g. a future
+        // typo'd action type) should not get a misleading migration hint.
+        let yaml = "actions:\n  - type: archive\n    destination: x/\n";
+        let error = parse_config(yaml).expect_err("type: archive is not a known action");
+        let msg = error.to_string();
+        assert!(msg.contains("unknown variant"), "got: {msg}");
+        assert!(
+            !msg.contains("TASK-77"),
+            "unrelated unknown-variant should not show the migration hint, got: {msg}"
+        );
     }
 
     #[test]

@@ -1,9 +1,10 @@
 ---
 id: TASK-82
 title: Friendlier migration error for old action YAML shape
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-27 16:04'
+updated_date: '2026-05-27 16:07'
 labels:
   - config
   - task-77-followup
@@ -45,17 +46,23 @@ Surface: src/config.rs Action enum.
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Submitting actions with type: copy or type: move produces an error message mentioning the new type: file + kind: copy/move shape
-- [ ] #2 Error message includes a reference to the CHANGELOG entry or TASK-77 for full migration notes
-- [ ] #3 Unit test covers the migration-pointing error path
+- [x] #1 Submitting actions with type: copy or type: move produces an error message mentioning the new type: file + kind: copy/move shape
+- [x] #2 Error message includes a reference to the CHANGELOG entry or TASK-77 for full migration notes
+- [x] #3 Unit test covers the migration-pointing error path
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+parse_config_str now detects the pre-TASK-77 'unknown variant copy' / 'unknown variant move' patterns and appends an actionable migration hint pointing at the new type:file + kind:copy/move shape and the CHANGELOG. Three unit tests cover the two old variants and a third sanity test (an unrelated 'unknown variant' like 'type: archive' must NOT show the misleading TASK-77 hint). DoD #4 (docs) and #5 (notes) not applicable — error message change only; user-facing CHANGELOG already documents the migration. Test count: 130+16 -> 133+16.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Acceptance criteria are satisfied and checked
-- [ ] #2 Relevant tests are added or updated
-- [ ] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
+- [x] #1 Acceptance criteria are satisfied and checked
+- [x] #2 Relevant tests are added or updated
+- [x] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
 - [ ] #4 Documentation/help/config examples are updated when behavior or user-facing output changes
 - [ ] #5 Backlog task notes and final summary describe what changed and how it was verified
-- [ ] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
+- [x] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
 <!-- DOD:END -->
