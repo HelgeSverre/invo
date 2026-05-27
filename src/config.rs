@@ -434,7 +434,40 @@ pub fn config_doctor_warnings(loaded: &LoadedConfig) -> Vec<String> {
     if let Some(warning) = ocr_feature_gate_warning(&loaded.config.processing.ocr) {
         warnings.push(warning);
     }
+    if let Some(warning) = parallelism_doctor_warning(loaded.config.processing.parallelism) {
+        warnings.push(warning);
+    }
     warnings
+}
+
+/// Sanity bound above which provider rate limits start dominating. At
+/// parallelism > 32 most hosted providers' default per-key rate limits
+/// will throttle retries, and the backoff stampede can starve the rest
+/// of the batch. Users with negotiated quotas or self-hosted providers
+/// can ignore the warning.
+const PARALLELISM_SOFT_CAP: u32 = 32;
+
+/// processing.parallelism: 0 silently clamps to 1 at the runtime call site
+/// (main.rs uses `.max(1)` before feeding buffer_unordered). The clamp is
+/// quiet on purpose so the binary stays robust, but it almost always
+/// reflects a typo — surface it in doctor.
+///
+/// Values above PARALLELISM_SOFT_CAP get a rate-limit warning rather than
+/// a hard reject because users with negotiated quotas or local providers
+/// (Ollama) have legitimate reasons to set them.
+fn parallelism_doctor_warning(parallelism: u32) -> Option<String> {
+    if parallelism == 0 {
+        return Some(
+            "processing.parallelism = 0 is treated as 1 at runtime; set it to 1 explicitly to silence this and document intent"
+                .to_string(),
+        );
+    }
+    if parallelism > PARALLELISM_SOFT_CAP {
+        return Some(format!(
+            "processing.parallelism = {parallelism} is high; hosted providers' default per-key rate limits will likely throttle retries above ~{PARALLELISM_SOFT_CAP}. Lower the value or use a self-hosted provider (Ollama) for very high concurrency"
+        ));
+    }
+    None
 }
 
 /// If the configured OCR mode needs a hosted API key, surface that the
@@ -697,6 +730,45 @@ processing:
         let config: Config = parse_config_str(yaml, std::path::Path::new("test.yaml"))
             .expect("parallelism: 8 must deserialize cleanly");
         assert_eq!(config.processing.parallelism, 8);
+    }
+
+    #[test]
+    fn doctor_warns_when_parallelism_is_zero() {
+        let mut config = Config::default();
+        config.processing.parallelism = 0;
+        let warnings = config_doctor_warnings(&loaded(config));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("parallelism = 0") && w.contains("treated as 1")),
+            "expected parallelism: 0 warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_warns_when_parallelism_exceeds_soft_cap() {
+        let mut config = Config::default();
+        config.processing.parallelism = 64;
+        let warnings = config_doctor_warnings(&loaded(config));
+        assert!(
+            warnings
+                .iter()
+                .any(|w| w.contains("parallelism = 64") && w.contains("rate limit")),
+            "expected high-parallelism warning, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_silent_on_normal_parallelism_values() {
+        for n in [1u32, 2, 4, 8, 16, 32] {
+            let mut config = Config::default();
+            config.processing.parallelism = n;
+            let warnings = config_doctor_warnings(&loaded(config));
+            assert!(
+                !warnings.iter().any(|w| w.contains("parallelism")),
+                "parallelism = {n} should not warn, got: {warnings:?}"
+            );
+        }
     }
 
     #[test]
