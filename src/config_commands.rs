@@ -2,9 +2,9 @@ use anyhow::{bail, Context, Result};
 use serde::Serialize;
 use std::path::PathBuf;
 
+use crate::cli::ConfigCommand;
 use crate::config::{self, config_doctor_warnings, load_config_status, Config};
 use crate::output::{print_json, with_newline};
-use crate::ConfigCommand;
 
 #[derive(Debug, Clone)]
 pub struct ConfigCommandOptions {
