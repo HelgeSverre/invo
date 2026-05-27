@@ -238,10 +238,10 @@ async fn main() -> Result<()> {
 ///
 /// - `0`: all inputs succeeded — no signal needed (returns `None`).
 /// - `2`: every input failed. Wrappers piping output to archive paths must
-///        not treat this as success.
+///   not treat this as success.
 /// - `3`: at least one input failed but at least one succeeded. Distinct
-///        from 2 so scripts can choose to retry only the failed half or
-///        accept partial results.
+///   from 2 so scripts can choose to retry only the failed half or
+///   accept partial results.
 ///
 /// Single-file runs (`input_count <= 1`) are handled at the call site by
 /// propagating the per-file error directly, so this returns `None` for them
