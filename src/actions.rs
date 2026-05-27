@@ -8,6 +8,25 @@ use anyhow::{anyhow, bail, Context, Result};
 use crate::config::{Action, Config, ExportAction, FileAction, HookAction, OnError, OutputFormat};
 use crate::invoice::ExtractionResult;
 
+impl Action {
+    fn label(&self) -> &'static str {
+        match self {
+            Action::Copy(_) => "copy",
+            Action::Move(_) => "move",
+            Action::Export(_) => "export",
+            Action::Hook(_) => "hook",
+        }
+    }
+
+    fn enabled(&self) -> bool {
+        match self {
+            Action::Copy(a) | Action::Move(a) => a.enabled,
+            Action::Export(a) => a.enabled,
+            Action::Hook(h) => h.enabled,
+        }
+    }
+}
+
 // Run all configured post-processing actions for one successful extraction.
 // Disabled actions are skipped silently. Per-action failures log and continue
 // unless the action is a Hook with on_error: Abort, which propagates the error
@@ -19,37 +38,17 @@ pub fn run_actions(
 ) -> Result<()> {
     let placeholders = build_placeholders(result);
     for action in actions {
-        if !action_is_enabled(action) {
+        if !action.enabled() {
             continue;
         }
         if let Err(err) = run_one(action, result, source_pdf_bytes, &placeholders) {
             match action {
                 Action::Hook(h) if matches!(h.on_error, OnError::Abort) => return Err(err),
-                _ => tracing::error!(
-                    "Action failed (continuing): {:?}: {err:#}",
-                    action_label(action)
-                ),
+                _ => tracing::error!("Action failed (continuing): {:?}: {err:#}", action.label()),
             }
         }
     }
     Ok(())
-}
-
-fn action_is_enabled(action: &Action) -> bool {
-    match action {
-        Action::Copy(a) | Action::Move(a) => a.enabled,
-        Action::Export(a) => a.enabled,
-        Action::Hook(h) => h.enabled,
-    }
-}
-
-fn action_label(action: &Action) -> &'static str {
-    match action {
-        Action::Copy(_) => "copy",
-        Action::Move(_) => "move",
-        Action::Export(_) => "export",
-        Action::Hook(_) => "hook",
-    }
 }
 
 fn run_one(
