@@ -232,6 +232,35 @@ fn init_respects_explicit_config_path_and_requires_force_to_overwrite() {
 }
 
 #[test]
+fn rejects_files_from_stdin_with_positional_stdin() {
+    // Pipe something into stdin so the process doesn't block waiting on a tty.
+    let mut child = invo()
+        .args(["--files-from", "-", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("invo should spawn");
+
+    {
+        let mut stdin = child.stdin.take().expect("stdin should be piped");
+        let _ = stdin.write_all(b"unused\n");
+    }
+
+    let output = child.wait_with_output().expect("invo should exit");
+
+    assert!(
+        !output.status.success(),
+        "stdin double-read combination must be rejected"
+    );
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(
+        stderr.contains("stdin cannot feed both"),
+        "stderr should explain the rejection, got: {stderr}"
+    );
+}
+
+#[test]
 fn help_includes_copy_pasteable_examples() {
     let top = invo().arg("--help").output().expect("invo should run");
     assert!(top.status.success());

@@ -1,8 +1,9 @@
 ---
 id: TASK-53
 title: Reject combining --files-from - with positional '-' (stdin double-read)
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:09'
 labels:
   - code-review
@@ -23,7 +24,7 @@ src/main.rs:564 input_patterns() calls read_files_from() (which reads stdin if p
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When cli.files_from == Some("-") and any positional argument is '-', the CLI rejects the combination at parse time with a clear error
-- [ ] #2 Alternatively, stdin consumption is tracked across both readers so only one consumer touches stdin
-- [ ] #3 Integration test pins the rejection (or shared-stdin) behavior
+- [x] #1 When cli.files_from == Some("-") and any positional argument is '-', the CLI rejects the combination at parse time with a clear error
+- [ ] #2 Alternatively, stdin consumption is tracked across both readers so only one consumer touches stdin (chose AC #1 instead)
+- [x] #3 Integration test pins the rejection (or shared-stdin) behavior
 <!-- AC:END -->

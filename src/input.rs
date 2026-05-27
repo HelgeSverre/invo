@@ -61,6 +61,20 @@ pub fn collect_inputs(options: &InputOptions) -> Result<Vec<InvoiceInputSpec>> {
 }
 
 fn input_patterns(options: &InputOptions) -> Result<Vec<PathBuf>> {
+    // Both --files-from - and a positional '-' read from stdin, and stdin
+    // can only be consumed once. Reject the combination before reading
+    // anything so we don't drain the PDF bytes into a stale path list.
+    if let Some(files_from) = &options.files_from {
+        if is_stdin_marker(files_from)
+            && options.files.iter().any(|p| is_stdin_marker(p))
+        {
+            bail!(
+                "stdin cannot feed both --files-from - and a positional '-'. \
+                 Pass the file list via --files-from <path> or the PDF via '-', not both."
+            );
+        }
+    }
+
     let mut patterns = options.files.clone();
 
     if let Some(files_from) = &options.files_from {
@@ -214,6 +228,24 @@ mod tests {
             .expect_err("duplicate stdin markers should fail before reading twice");
 
         assert!(error.to_string().contains("can only be specified once"));
+    }
+
+    #[test]
+    fn input_patterns_rejects_files_from_stdin_with_positional_stdin() {
+        // Reject before any stdin read so we don't drain the PDF bytes into a
+        // stale file-list and then try to re-read stdin for the PDF.
+        let options = InputOptions {
+            files: vec![PathBuf::from("-")],
+            files_from: Some(PathBuf::from("-")),
+        };
+
+        let error = input_patterns(&options)
+            .expect_err("stdin double-read combination should be rejected at parse time");
+
+        assert!(
+            error.to_string().contains("stdin cannot feed both"),
+            "expected stdin-double-read error, got: {error}"
+        );
     }
 
     #[test]
