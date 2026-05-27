@@ -80,10 +80,12 @@ async fn main() -> Result<()> {
 
         match extract_invoice(&input, &config, &llm).await {
             Ok(result) => {
-                if let Err(err) = actions::run_after_extraction(&config, &result, &input.bytes) {
-                    tracing::error!("Post-processing aborted for {}: {err:#}", input.path);
-                    if input_count == 1 {
-                        return Err(err);
+                if !config.actions.is_empty() {
+                    if let Err(err) = actions::run_actions(&config.actions, &result, &input.bytes) {
+                        tracing::error!("Post-processing aborted for {}: {err:#}", input.path);
+                        if input_count == 1 {
+                            return Err(err);
+                        }
                     }
                 }
                 if streaming {

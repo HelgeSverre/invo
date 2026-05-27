@@ -318,19 +318,6 @@ fn render_single_csv(result: &ExtractionResult) -> String {
     format!("{header}\n{row}\n")
 }
 
-// Convenience entry point for the main loop. Reads the source PDF bytes from
-// the file (or skips that on stdin) and runs the actions in order.
-pub fn run_after_extraction(
-    config: &Config,
-    result: &ExtractionResult,
-    source_pdf_bytes: &[u8],
-) -> Result<()> {
-    if config.actions.is_empty() {
-        return Ok(());
-    }
-    run_actions(&config.actions, result, source_pdf_bytes)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
