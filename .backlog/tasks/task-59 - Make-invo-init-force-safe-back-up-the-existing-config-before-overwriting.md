@@ -1,8 +1,9 @@
 ---
 id: TASK-59
 title: 'Make ''invo init --force'' safe: back up the existing config before overwriting'
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:10'
 labels:
   - code-review
@@ -24,7 +25,7 @@ src/main.rs:215 writes include_str!("../config.yaml") over the existing config w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When --force overwrites an existing config, the original file is preserved as <path>.bak.YYYYMMDDHHMMSS before the write
-- [ ] #2 The backup path is logged to stderr on success
-- [ ] #3 Integration test asserts the backup file exists after a forced overwrite
+- [x] #1 When --force overwrites an existing config, the original file is preserved as <path>.bak.YYYYMMDDHHMMSS before the write
+- [x] #2 The backup path is logged to stderr on success
+- [x] #3 Integration test asserts the backup file exists after a forced overwrite
 <!-- AC:END -->

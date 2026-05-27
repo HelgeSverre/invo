@@ -223,12 +223,46 @@ fn init_respects_explicit_config_path_and_requires_force_to_overwrite() {
     let stderr = String::from_utf8(second.stderr).expect("stderr should be utf-8");
     assert!(stderr.contains("--force"));
 
+    // Mutate the existing config so we can prove --force backed it up before
+    // overwriting. The bytes-on-disk pin the backup contents end-to-end.
+    fs::write(&config_path, b"# customized by user\n").expect("config mutation should write");
+
     let forced = invo()
         .args(["init", "-c", config_path.to_str().unwrap(), "--force"])
         .output()
         .expect("invo should run");
 
     assert!(forced.status.success());
+
+    let forced_stderr = String::from_utf8(forced.stderr).expect("stderr should be utf-8");
+    assert!(
+        forced_stderr.contains("Backed up existing config to"),
+        "stderr should announce the backup, got: {forced_stderr}"
+    );
+
+    let config_dir = config_path.parent().unwrap_or_else(|| std::path::Path::new("."));
+    let backup_prefix = format!("{}.bak.", config_path.file_name().unwrap().to_string_lossy());
+    let backups: Vec<_> = fs::read_dir(config_dir)
+        .expect("config dir should be readable")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .starts_with(&backup_prefix)
+        })
+        .collect();
+    assert_eq!(
+        backups.len(),
+        1,
+        "exactly one backup file should exist matching {backup_prefix}*"
+    );
+
+    let backup_contents = fs::read(backups[0].path()).expect("backup should be readable");
+    assert_eq!(
+        backup_contents, b"# customized by user\n",
+        "backup must preserve the pre-overwrite bytes"
+    );
 }
 
 #[test]

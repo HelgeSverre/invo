@@ -15,7 +15,9 @@ pub struct ConfigCommandOptions {
 
 pub fn handle_init(config_path_override: Option<&PathBuf>, force: bool) -> Result<()> {
     let config_path = config::config_path(config_path_override);
-    if config_path.exists() && !force {
+    let existed_before = config_path.exists();
+
+    if existed_before && !force {
         bail!(
             "Config file already exists at {}. Re-run with --force to overwrite it.",
             config_path.display()
@@ -28,11 +30,34 @@ pub fn handle_init(config_path_override: Option<&PathBuf>, force: bool) -> Resul
         }
     }
 
+    let backup_path = if existed_before {
+        Some(backup_existing_config(&config_path)?)
+    } else {
+        None
+    };
+
     let config_template = include_str!("../config.yaml");
     std::fs::write(&config_path, config_template)?;
 
+    if let Some(backup) = &backup_path {
+        eprintln!("Backed up existing config to {}", backup.display());
+    }
     eprintln!("Created config file at {}", config_path.display());
     Ok(())
+}
+
+fn backup_existing_config(config_path: &PathBuf) -> Result<PathBuf> {
+    let timestamp = chrono::Local::now().format("%Y%m%d%H%M%S");
+    let mut backup = config_path.clone().into_os_string();
+    backup.push(format!(".bak.{timestamp}"));
+    let backup_path = PathBuf::from(backup);
+    std::fs::copy(config_path, &backup_path).with_context(|| {
+        format!(
+            "Failed to back up existing config to {}",
+            backup_path.display()
+        )
+    })?;
+    Ok(backup_path)
 }
 
 pub fn handle_config_command(
