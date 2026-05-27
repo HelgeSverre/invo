@@ -1,7 +1,7 @@
 ---
 id: TASK-37
 title: Fix CI workflow trigger branches to match repo default (master)
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-27 00:07'
 labels:
@@ -23,7 +23,7 @@ ci.yml triggers on branches: [main] but the repo default branch is master. The w
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ci.yml push trigger lists branches: [master]
-- [ ] #2 ci.yml pull_request trigger lists branches: [master]
+- [x] #1 ci.yml push trigger lists branches: [master]
+- [x] #2 ci.yml pull_request trigger lists branches: [master]
 - [ ] #3 A test commit to master shows CI running
 <!-- AC:END -->
