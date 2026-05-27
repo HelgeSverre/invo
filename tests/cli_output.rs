@@ -192,7 +192,14 @@ fn config_validate_json_is_machine_readable() {
 #[test]
 fn config_validate_json_strict_flag_is_reflected_in_output() {
     let output = invo()
-        .args(["config", "validate", "-c", "config.yaml", "--strict", "--json"])
+        .args([
+            "config",
+            "validate",
+            "-c",
+            "config.yaml",
+            "--strict",
+            "--json",
+        ])
         .output()
         .expect("invo should run");
 
@@ -278,8 +285,13 @@ fn init_respects_explicit_config_path_and_requires_force_to_overwrite() {
         "stderr should announce the backup, got: {forced_stderr}"
     );
 
-    let config_dir = config_path.parent().unwrap_or_else(|| std::path::Path::new("."));
-    let backup_prefix = format!("{}.bak.", config_path.file_name().unwrap().to_string_lossy());
+    let config_dir = config_path
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let backup_prefix = format!(
+        "{}.bak.",
+        config_path.file_name().unwrap().to_string_lossy()
+    );
     let backups: Vec<_> = fs::read_dir(config_dir)
         .expect("config dir should be readable")
         .filter_map(Result::ok)

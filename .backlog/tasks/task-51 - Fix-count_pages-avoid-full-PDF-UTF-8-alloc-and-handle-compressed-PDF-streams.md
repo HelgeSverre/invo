@@ -1,8 +1,9 @@
 ---
 id: TASK-51
 title: 'Fix count_pages: avoid full-PDF UTF-8 alloc and handle compressed PDF streams'
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:09'
 labels:
   - code-review
@@ -24,8 +25,8 @@ src/pdf.rs:58-63 calls String::from_utf8_lossy on the entire binary PDF byte sli
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Allocation: count_pages searches bytes directly (e.g. bytes.windows(...).count()) without allocating a String copy
-- [ ] #2 Correctness: compressed-stream PDFs report a real page count (parse via lopdf or have pdf-extract report it)
-- [ ] #3 Pattern match avoids false positives on '/Type /Pages' (use a trailing delimiter)
-- [ ] #4 Regression tests cover an uncompressed multi-page PDF, a compressed multi-page PDF, and a single-page PDF
+- [x] #1 Allocation: count_pages searches bytes directly (e.g. bytes.windows(...).count()) without allocating a String copy
+- [x] #2 Correctness: compressed-stream PDFs report a real page count (parse via lopdf or have pdf-extract report it)
+- [x] #3 Pattern match avoids false positives on '/Type /Pages' (use a trailing delimiter)
+- [x] #4 Regression tests cover an uncompressed multi-page PDF, a compressed multi-page PDF, and a single-page PDF
 <!-- AC:END -->

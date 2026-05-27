@@ -65,9 +65,7 @@ fn input_patterns(options: &InputOptions) -> Result<Vec<PathBuf>> {
     // can only be consumed once. Reject the combination before reading
     // anything so we don't drain the PDF bytes into a stale path list.
     if let Some(files_from) = &options.files_from {
-        if is_stdin_marker(files_from)
-            && options.files.iter().any(|p| is_stdin_marker(p))
-        {
+        if is_stdin_marker(files_from) && options.files.iter().any(|p| is_stdin_marker(p)) {
             bail!(
                 "stdin cannot feed both --files-from - and a positional '-'. \
                  Pass the file list via --files-from <path> or the PDF via '-', not both."

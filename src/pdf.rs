@@ -51,12 +51,42 @@ fn short_sha256(bytes: &[u8]) -> String {
     hash.chars().take(SHORT_HASH_LEN).collect()
 }
 
-/// Count pages in a PDF (best effort)
+/// Count pages in a PDF (best effort).
+///
+/// Prefers `lopdf` because it correctly handles compressed object streams
+/// (PDF 1.5+) where the `/Type /Page` literal does not appear in the raw
+/// bytes. Falls back to a delimiter-aware byte scan when lopdf cannot parse
+/// the document — the scan is allocation-free and rejects the `/Type /Pages`
+/// catalog entry to avoid the +1 overcount the previous string-based pass had.
 fn count_pages(bytes: &[u8]) -> usize {
-    String::from_utf8_lossy(bytes)
-        .matches("/Type /Page")
+    if let Ok(doc) = lopdf::Document::load_mem(bytes) {
+        let pages = doc.get_pages().len();
+        if pages > 0 {
+            return pages;
+        }
+    }
+    count_pages_by_scan(bytes).max(1)
+}
+
+fn count_pages_by_scan(bytes: &[u8]) -> usize {
+    let needle = b"/Type /Page";
+    bytes
+        .windows(needle.len())
+        .enumerate()
+        .filter(|(start, window)| {
+            *window == needle
+                && bytes
+                    .get(start + needle.len())
+                    .is_some_and(|b| !is_pdf_name_continuation(*b))
+        })
         .count()
-        .max(1)
+}
+
+// True for bytes that can appear inside a PDF /Name token (per PDF 32000-1
+// section 7.3.5). If the byte directly after `/Type /Page` is one of these,
+// the match is actually `/Pages` (or `/PageLayout`, etc.) — not a real page.
+fn is_pdf_name_continuation(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'-'
 }
 
 /// Check whether bytes start with the PDF magic header.
@@ -90,5 +120,46 @@ mod tests {
     fn short_sha256_is_deterministic() {
         assert_eq!(short_sha256(b"abc"), short_sha256(b"abc"));
         assert_ne!(short_sha256(b"abc"), short_sha256(b"abd"));
+    }
+
+    #[test]
+    fn count_pages_by_scan_rejects_pages_catalog_false_positive() {
+        // /Type /Pages is the page catalog, not a leaf page. The previous
+        // string-matches() pass counted it as +1 page on every PDF.
+        let bytes = b"3 0 obj <</Type /Pages /Kids [4 0 R] /Count 1>> endobj\n\
+                      4 0 obj <</Type /Page /Parent 3 0 R>> endobj\n";
+
+        assert_eq!(count_pages_by_scan(bytes), 1);
+    }
+
+    #[test]
+    fn count_pages_by_scan_counts_uncompressed_multi_page_layout() {
+        // Two page objects with a /Type /Pages catalog. The catalog must be
+        // rejected; only the two leaf pages should count.
+        let bytes = b"1 0 obj <</Type /Catalog /Pages 2 0 R>> endobj\n\
+                      2 0 obj <</Type /Pages /Kids [3 0 R 4 0 R] /Count 2>> endobj\n\
+                      3 0 obj <</Type /Page /Parent 2 0 R>> endobj\n\
+                      4 0 obj <</Type /Page /Parent 2 0 R>> endobj\n";
+
+        assert_eq!(count_pages_by_scan(bytes), 2);
+    }
+
+    #[test]
+    fn count_pages_single_page_real_sample() {
+        let bytes = std::fs::read("samples/misc/2025.01.25 - Laravel Vapor - Jan.pdf")
+            .expect("sample pdf should be readable");
+
+        assert_eq!(count_pages(&bytes), 1);
+    }
+
+    #[test]
+    fn count_pages_compressed_multi_page_real_sample() {
+        // PDF 1.5 documents commonly use compressed object streams, where the
+        // /Type /Page literal never appears in raw bytes. lopdf decompresses
+        // and reports the real count; the legacy string match returned 1.
+        let bytes = std::fs::read("samples/misc/2025.11.30 - GoogleCloudEMEALimited.pdf")
+            .expect("sample pdf should be readable");
+
+        assert_eq!(count_pages(&bytes), 2);
     }
 }

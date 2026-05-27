@@ -57,6 +57,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 pdfium-render = { version = "0.8", optional = true }
 image = { version = "0.25", optional = true, default-features = false, features = ["png"] }
 csv = "1.4.0"
+lopdf = { version = "0.38", default-features = false, features = ["chrono"] }
 
 [features]
 default = []
