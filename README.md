@@ -433,6 +433,8 @@ Configured actions run after each successful extraction, in config order. Disabl
 
 Templates in `destination`, `filename`, and hook `args` substitute these placeholders: `{vendor}`, `{date}` (YYYY-MM-DD), `{year}`, `{month}`, `{day}`, `{invoice_number}` (empty when missing), `{currency}`, `{total}`, `{hash}`, `{original_name}`, `{stem}` (original name without `.pdf`). Path separators (`/`, `\`, `:`) inside expanded filename values are replaced with `_`.
 
+**Destination collisions** (relevant when `processing.parallelism > 1`): if two parallel workers' templates expand to the same filesystem destination, the first writer wins. The second worker logs a WARN to stderr (`copy action skipped: destination X already claimed`) and skips its write. For `kind: move`, the second worker also leaves its source PDF intact — no source removal when the move was skipped. Use templates with vendor + invoice number + date placeholders to keep destinations unique; hook actions are not tracked because their destinations are user-script-defined. See `.backlog/decisions/decision-4` for the full policy.
+
 ```yaml
 actions:
   # Copy the source PDF to an organized archive.

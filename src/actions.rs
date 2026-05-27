@@ -1,7 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, Mutex};
 
 use anyhow::{anyhow, bail, Context, Result};
 
@@ -9,6 +10,32 @@ use crate::config::{
     Action, ExportAction, FileAction, FileActionKind, HookAction, OnError, OutputFormat,
 };
 use crate::invoice::ExtractionResult;
+
+/// Shared across parallel batch workers (and trivially shared in single-file
+/// mode too) so two workers that resolve to the same filesystem destination
+/// don't clobber each other. Decision-4 documents the "first writer wins,
+/// second logs WARN and skips" policy.
+///
+/// Caller responsibility: build one registry per batch invocation and clone
+/// the Arc into each worker's closure (or, in single-file mode, into the
+/// one and only call to `run_actions`). Hook actions don't participate
+/// because their destinations are user-script-defined and invisible here.
+pub type DestinationRegistry = Arc<Mutex<HashSet<PathBuf>>>;
+
+/// Build a fresh registry. Call once per batch.
+pub fn new_destination_registry() -> DestinationRegistry {
+    Arc::new(Mutex::new(HashSet::new()))
+}
+
+/// Try to claim a destination path for writing. Returns true when the caller
+/// is the first to claim it (and may proceed); false when another worker has
+/// already claimed it (caller should log WARN and skip).
+fn try_claim_destination(registry: &DestinationRegistry, dest: &Path) -> bool {
+    let mut set = registry
+        .lock()
+        .expect("destination registry mutex was poisoned by a panicking worker");
+    set.insert(dest.to_path_buf())
+}
 
 /// Behavior shared by every post-extraction action variant. Each variant owns
 /// its own label, enabled-check, and execution — the dispatch in `run_actions`
@@ -23,6 +50,7 @@ trait PostAction {
         result: &ExtractionResult,
         source_pdf_bytes: &[u8],
         placeholders: &HashMap<&'static str, String>,
+        registry: &DestinationRegistry,
     ) -> Result<()>;
 }
 
@@ -43,10 +71,15 @@ impl PostAction for FileAction {
         result: &ExtractionResult,
         source_pdf_bytes: &[u8],
         placeholders: &HashMap<&'static str, String>,
+        registry: &DestinationRegistry,
     ) -> Result<()> {
         match self.kind {
-            FileActionKind::Copy => run_copy(self, result, source_pdf_bytes, placeholders),
-            FileActionKind::Move => run_move(self, result, source_pdf_bytes, placeholders),
+            FileActionKind::Copy => {
+                run_copy(self, result, source_pdf_bytes, placeholders, registry)
+            }
+            FileActionKind::Move => {
+                run_move(self, result, source_pdf_bytes, placeholders, registry)
+            }
         }
     }
 }
@@ -65,8 +98,9 @@ impl PostAction for ExportAction {
         result: &ExtractionResult,
         _source_pdf_bytes: &[u8],
         placeholders: &HashMap<&'static str, String>,
+        registry: &DestinationRegistry,
     ) -> Result<()> {
-        run_export(self, result, placeholders)
+        run_export(self, result, placeholders, registry)
     }
 }
 
@@ -84,6 +118,7 @@ impl PostAction for HookAction {
         result: &ExtractionResult,
         _source_pdf_bytes: &[u8],
         placeholders: &HashMap<&'static str, String>,
+        _registry: &DestinationRegistry,
     ) -> Result<()> {
         run_hook(self, result, placeholders)
     }
@@ -111,11 +146,12 @@ impl PostAction for Action {
         result: &ExtractionResult,
         source_pdf_bytes: &[u8],
         placeholders: &HashMap<&'static str, String>,
+        registry: &DestinationRegistry,
     ) -> Result<()> {
         match self {
-            Action::File(a) => a.run(result, source_pdf_bytes, placeholders),
-            Action::Export(a) => a.run(result, source_pdf_bytes, placeholders),
-            Action::Hook(a) => a.run(result, source_pdf_bytes, placeholders),
+            Action::File(a) => a.run(result, source_pdf_bytes, placeholders, registry),
+            Action::Export(a) => a.run(result, source_pdf_bytes, placeholders, registry),
+            Action::Hook(a) => a.run(result, source_pdf_bytes, placeholders, registry),
         }
     }
 }
@@ -124,17 +160,22 @@ impl PostAction for Action {
 // Disabled actions are skipped silently. Per-action failures log and continue
 // unless the action is a Hook with on_error: Abort, which propagates the error
 // up so the caller can decide what to do with the batch.
+//
+// The destination registry is shared across parallel workers; see decision-4
+// for the "first writer wins" policy. Single-file callers can pass a fresh
+// registry — there's nothing to collide with.
 pub fn run_actions(
     actions: &[Action],
     result: &ExtractionResult,
     source_pdf_bytes: &[u8],
+    registry: &DestinationRegistry,
 ) -> Result<()> {
     let placeholders = build_placeholders(result);
     for action in actions {
         if !action.enabled() {
             continue;
         }
-        if let Err(err) = action.run(result, source_pdf_bytes, &placeholders) {
+        if let Err(err) = action.run(result, source_pdf_bytes, &placeholders, registry) {
             match action {
                 Action::Hook(h) if matches!(h.on_error, OnError::Abort) => return Err(err),
                 _ => tracing::error!("Action failed (continuing): {:?}: {err:#}", action.label()),
@@ -149,8 +190,17 @@ fn run_copy(
     result: &ExtractionResult,
     source_pdf_bytes: &[u8],
     placeholders: &HashMap<&'static str, String>,
+    registry: &DestinationRegistry,
 ) -> Result<()> {
     let dest = resolve_file_dest(action, result, placeholders)?;
+    if !try_claim_destination(registry, &dest) {
+        tracing::warn!(
+            "copy action skipped: destination {} already claimed by another worker (source: {})",
+            dest.display(),
+            result.file.path
+        );
+        return Ok(());
+    }
     ensure_parent(&dest, action.create_dirs)?;
     write_pdf_to(&dest, &result.file.path, source_pdf_bytes)
         .with_context(|| format!("copy action -> {}", dest.display()))?;
@@ -163,8 +213,20 @@ fn run_move(
     result: &ExtractionResult,
     source_pdf_bytes: &[u8],
     placeholders: &HashMap<&'static str, String>,
+    registry: &DestinationRegistry,
 ) -> Result<()> {
     let dest = resolve_file_dest(action, result, placeholders)?;
+    if !try_claim_destination(registry, &dest) {
+        // Decision-4: skip the move AND do NOT delete the source. Another
+        // worker wrote a different file's contents at this destination, so
+        // deleting the source here would lose user data.
+        tracing::warn!(
+            "move action skipped: destination {} already claimed by another worker (source preserved: {})",
+            dest.display(),
+            result.file.path
+        );
+        return Ok(());
+    }
     ensure_parent(&dest, action.create_dirs)?;
     write_pdf_to(&dest, &result.file.path, source_pdf_bytes)
         .with_context(|| format!("move action -> {}", dest.display()))?;
@@ -188,6 +250,7 @@ fn run_export(
     action: &ExportAction,
     result: &ExtractionResult,
     placeholders: &HashMap<&'static str, String>,
+    registry: &DestinationRegistry,
 ) -> Result<()> {
     let dest_dir = expand(&action.destination, placeholders);
     let filename = match &action.filename {
@@ -195,6 +258,14 @@ fn run_export(
         None => default_export_filename(result, action.format),
     };
     let dest = PathBuf::from(dest_dir).join(sanitize_filename(&filename));
+    if !try_claim_destination(registry, &dest) {
+        tracing::warn!(
+            "export action skipped: destination {} already claimed by another worker (source: {})",
+            dest.display(),
+            result.file.path
+        );
+        return Ok(());
+    }
     ensure_parent(&dest, true)?;
 
     let serialized = match action.format {
@@ -482,7 +553,13 @@ mod tests {
             filename: Some("{vendor}-{invoice_number}.pdf".into()),
             create_dirs: true,
         });
-        run_actions(&[action], &result, b"%PDF-1.7\nbody\n").expect("copy ok");
+        run_actions(
+            &[action],
+            &result,
+            b"%PDF-1.7\nbody\n",
+            &new_destination_registry(),
+        )
+        .expect("copy ok");
         assert!(dir.join("out/2026/Acme-INV-001.pdf").exists());
         // Source still there for Copy.
         assert!(src.exists());
@@ -502,7 +579,13 @@ mod tests {
             filename: None,
             create_dirs: true,
         });
-        run_actions(&[action], &result, b"%PDF-1.7\n").expect("move ok");
+        run_actions(
+            &[action],
+            &result,
+            b"%PDF-1.7\n",
+            &new_destination_registry(),
+        )
+        .expect("move ok");
         assert!(dir.join("out/receipt.pdf").exists());
         assert!(!src.exists(), "source should be removed after Move");
         fs::remove_dir_all(&dir).ok();
@@ -518,7 +601,7 @@ mod tests {
             destination: dir.to_string_lossy().to_string(),
             filename: Some("{vendor}-{date}.json".into()),
         });
-        run_actions(&[action], &result, b"").expect("export ok");
+        run_actions(&[action], &result, b"", &new_destination_registry()).expect("export ok");
         let body = fs::read_to_string(dir.join("Acme-2026-05-27.json")).unwrap();
         assert!(body.contains("\"vendor\": \"Acme\""));
         fs::remove_dir_all(&dir).ok();
@@ -534,7 +617,7 @@ mod tests {
             destination: dir.to_string_lossy().to_string(),
             filename: None,
         });
-        run_actions(&[action], &result, b"").expect("export ok");
+        run_actions(&[action], &result, b"", &new_destination_registry()).expect("export ok");
         let body = fs::read_to_string(dir.join("receipt-A.csv")).unwrap();
         assert!(body.starts_with("vendor,date,total,currency,invoice_number\n"));
         assert!(body.contains("Acme"));
@@ -551,7 +634,7 @@ mod tests {
             destination: dir.to_string_lossy().to_string(),
             filename: Some("should-not-appear.json".into()),
         });
-        run_actions(&[action], &result, b"").expect("ok");
+        run_actions(&[action], &result, b"", &new_destination_registry()).expect("ok");
         assert!(!dir.join("should-not-appear.json").exists());
         fs::remove_dir_all(&dir).ok();
     }
@@ -574,7 +657,7 @@ mod tests {
             on_error: OnError::Continue,
         });
         let result = fixture("Acme", "receipt.pdf", "/nowhere");
-        run_actions(&[action], &result, b"").expect("hook ok");
+        run_actions(&[action], &result, b"", &new_destination_registry()).expect("hook ok");
         let body = fs::read_to_string(&marker).unwrap();
         assert!(
             body.contains("Acme:42.5:USD:2026-05-27:receipt"),
@@ -602,8 +685,91 @@ mod tests {
             }),
         ];
         let result = fixture("Acme", "r.pdf", "/nowhere");
-        run_actions(&actions, &result, b"").expect("continue should not propagate");
+        run_actions(&actions, &result, b"", &new_destination_registry())
+            .expect("continue should not propagate");
         assert!(succeed.exists(), "second hook should still have run");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn copy_action_with_colliding_destination_is_skipped_and_first_wins() {
+        let dir = tmpdir("collide-copy");
+        let src_a = dir.join("a.pdf");
+        let src_b = dir.join("b.pdf");
+        fs::write(&src_a, b"FIRST").unwrap();
+        fs::write(&src_b, b"SECOND").unwrap();
+        let dest_template = dir.join("out").to_string_lossy().to_string();
+        let registry = new_destination_registry();
+
+        // Two file actions resolving to the same destination filename. The
+        // first worker claims the path; the second must skip without writing.
+        let action_a = Action::File(FileAction {
+            kind: FileActionKind::Copy,
+            enabled: true,
+            destination: dest_template.clone(),
+            filename: Some("same.pdf".into()),
+            create_dirs: true,
+        });
+        let action_b = Action::File(FileAction {
+            kind: FileActionKind::Copy,
+            enabled: true,
+            destination: dest_template,
+            filename: Some("same.pdf".into()),
+            create_dirs: true,
+        });
+
+        let result_a = fixture("Acme", "a.pdf", src_a.to_str().unwrap());
+        let result_b = fixture("Beta", "b.pdf", src_b.to_str().unwrap());
+        run_actions(&[action_a], &result_a, b"FIRST", &registry).expect("first copy ok");
+        run_actions(&[action_b], &result_b, b"SECOND", &registry)
+            .expect("second copy must be Ok (skipped, not errored)");
+
+        // Destination must hold the first writer's bytes — second was skipped.
+        let body = fs::read(dir.join("out/same.pdf")).expect("dest exists");
+        assert_eq!(body, b"FIRST", "first writer must win the collision");
+        fs::remove_dir_all(&dir).ok();
+    }
+
+    #[test]
+    fn move_action_with_colliding_destination_skips_and_preserves_source() {
+        let dir = tmpdir("collide-move");
+        let src_a = dir.join("a.pdf");
+        let src_b = dir.join("b.pdf");
+        fs::write(&src_a, b"FIRST").unwrap();
+        fs::write(&src_b, b"SECOND").unwrap();
+        let dest_template = dir.join("out").to_string_lossy().to_string();
+        let registry = new_destination_registry();
+
+        let action_a = Action::File(FileAction {
+            kind: FileActionKind::Move,
+            enabled: true,
+            destination: dest_template.clone(),
+            filename: Some("same.pdf".into()),
+            create_dirs: true,
+        });
+        let action_b = Action::File(FileAction {
+            kind: FileActionKind::Move,
+            enabled: true,
+            destination: dest_template,
+            filename: Some("same.pdf".into()),
+            create_dirs: true,
+        });
+
+        let result_a = fixture("Acme", "a.pdf", src_a.to_str().unwrap());
+        let result_b = fixture("Beta", "b.pdf", src_b.to_str().unwrap());
+        run_actions(&[action_a], &result_a, b"FIRST", &registry).expect("first move ok");
+        run_actions(&[action_b], &result_b, b"SECOND", &registry)
+            .expect("second move must be Ok (skipped)");
+
+        // First source is gone (moved); second source must still exist
+        // because the move was skipped on collision.
+        assert!(!src_a.exists(), "first source must be removed by Move");
+        assert!(
+            src_b.exists(),
+            "second source must be preserved when Move is skipped on collision (decision-4)"
+        );
+        let body = fs::read(dir.join("out/same.pdf")).unwrap();
+        assert_eq!(body, b"FIRST");
         fs::remove_dir_all(&dir).ok();
     }
 
@@ -616,7 +782,8 @@ mod tests {
             on_error: OnError::Abort,
         });
         let result = fixture("Acme", "r.pdf", "/nowhere");
-        let err = run_actions(&[action], &result, b"").expect_err("abort should fail");
+        let err = run_actions(&[action], &result, b"", &new_destination_registry())
+            .expect_err("abort should fail");
         assert!(err.to_string().contains("exited"));
     }
 }

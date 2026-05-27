@@ -1,9 +1,10 @@
 ---
 id: TASK-81
 title: Detect parallel-action destination collisions
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-27 16:04'
+updated_date: '2026-05-27 16:15'
 labels:
   - feature
   - actions
@@ -38,18 +39,24 @@ Acceptance criteria below assume option (a) skip-with-WARN; revise if the ADR pi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 ADR documenting the chosen behavior added under .backlog/decisions/
-- [ ] #2 When two parallel workers resolve to the same Copy/Move/Export destination, behavior follows the ADR
-- [ ] #3 When a Move worker is skipped due to collision, the source PDF is NOT removed
-- [ ] #4 Test covers the collision path with parallelism: 2 and a template that produces identical destinations
+- [x] #1 ADR documenting the chosen behavior added under .backlog/decisions/
+- [x] #2 When two parallel workers resolve to the same Copy/Move/Export destination, behavior follows the ADR
+- [x] #3 When a Move worker is skipped due to collision, the source PDF is NOT removed
+- [x] #4 Test covers the collision path with parallelism: 2 and a template that produces identical destinations
 <!-- AC:END -->
+
+## Final Summary
+
+<!-- SECTION:FINAL_SUMMARY:BEGIN -->
+Decision-4 documents the chosen policy: first writer wins, second worker logs WARN and skips, Move never deletes source on skip. Implementation: new public DestinationRegistry type (Arc<Mutex<HashSet<PathBuf>>>) and new_destination_registry constructor in src/actions.rs. PostAction::run gained a &DestinationRegistry parameter. FileAction (Copy/Move) and ExportAction call try_claim_destination before writing; on collision they tracing::warn and return Ok without writing. HookAction ignores the registry (user-script destinations are invisible). main.rs creates one registry per batch and Arc::clones it into each worker closure; single-file mode passes a fresh registry trivially. Two new collision tests: copy_action_with_colliding_destination_is_skipped_and_first_wins, move_action_with_colliding_destination_skips_and_preserves_source. README and CHANGELOG updated. Test count: 135+16 -> 137+16.
+<!-- SECTION:FINAL_SUMMARY:END -->
 
 ## Definition of Done
 <!-- DOD:BEGIN -->
-- [ ] #1 Acceptance criteria are satisfied and checked
-- [ ] #2 Relevant tests are added or updated
-- [ ] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
-- [ ] #4 Documentation/help/config examples are updated when behavior or user-facing output changes
-- [ ] #5 Backlog task notes and final summary describe what changed and how it was verified
-- [ ] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
+- [x] #1 Acceptance criteria are satisfied and checked
+- [x] #2 Relevant tests are added or updated
+- [x] #3 cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass
+- [x] #4 Documentation/help/config examples are updated when behavior or user-facing output changes
+- [x] #5 Backlog task notes and final summary describe what changed and how it was verified
+- [x] #6 Self-review confirms no unrelated changes, secrets, or debug artifacts are included
 <!-- DOD:END -->

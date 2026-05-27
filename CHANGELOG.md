@@ -88,3 +88,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the setting. Implementation uses `futures::StreamExt::buffer_unordered`
   over a single shared `LlmContext`, so the reqwest connection pool is
   also shared across the parallel workers.
+
+- Destination-collision detection for parallel post-processing actions
+  (TASK-81, decision-4). When two workers' file/export templates resolve
+  to the same path, the first writer wins; the second logs a WARN and
+  skips. For Move actions, the second worker also preserves its source
+  PDF (no delete on skip). Hook actions are not tracked because their
+  destinations are user-script-defined.
+
+- Config doctor warnings for `processing.parallelism` (TASK-79):
+  - `parallelism: 0` → warns that it's clamped to 1 at runtime; set it
+    to 1 explicitly to document intent.
+  - `parallelism > 32` → warns that hosted providers' rate limits
+    likely throttle retries above this threshold.
+
+- Migration-pointing parse error for old action YAML (TASK-82). When a
+  config still uses the pre-TASK-77 `type: copy` or `type: move` shape,
+  the parse error now includes the new `type: file` + `kind: ...`
+  example inline instead of relying on serde's generic "unknown variant"
+  message.

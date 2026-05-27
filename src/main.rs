@@ -78,7 +78,9 @@ async fn main() -> Result<()> {
             .with_context(|| format!("Failed to read input: {input_path}"))?;
         let result = extract_invoice(&input, &config, &llm).await?;
         if !config.actions.is_empty() {
-            actions::run_actions(&config.actions, &result, &input.bytes)
+            // Single-file mode: fresh registry, no possible collisions.
+            let registry = actions::new_destination_registry();
+            actions::run_actions(&config.actions, &result, &input.bytes, &registry)
                 .with_context(|| format!("Post-processing aborted for {}", input.path))?;
         }
         if streaming {
@@ -93,9 +95,13 @@ async fn main() -> Result<()> {
     // for both streaming and buffered output. Each record's file.path + file.hash
     // self-identify which input it came from; consumers that need input order
     // should sort downstream.
+    //
+    // One destination registry shared across all workers — see decision-4 for
+    // the first-writer-wins collision policy.
     let parallelism = config.processing.parallelism.max(1) as usize;
     let config = Arc::new(config);
     let llm = Arc::new(llm);
+    let action_registry = actions::new_destination_registry();
     let mut results = Vec::new();
     let mut success_count: usize = 0;
     let mut failure_count: usize = 0;
@@ -103,6 +109,7 @@ async fn main() -> Result<()> {
     let mut stream = futures::stream::iter(inputs.into_iter().map(|input_spec| {
         let config = Arc::clone(&config);
         let llm = Arc::clone(&llm);
+        let action_registry = action_registry.clone();
         async move {
             let input_path = input_spec.path.clone();
             let input = input_spec
@@ -112,7 +119,7 @@ async fn main() -> Result<()> {
                 .await
                 .with_context(|| format!("Failed to process {}", input.path))?;
             if !config.actions.is_empty() {
-                actions::run_actions(&config.actions, &result, &input.bytes)
+                actions::run_actions(&config.actions, &result, &input.bytes, &action_registry)
                     .with_context(|| format!("Post-processing aborted for {}", input.path))?;
             }
             Ok::<_, anyhow::Error>(result)
