@@ -133,8 +133,8 @@ fn batch_with_zero_successes_exits_non_zero() {
 
     let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
     assert!(
-        stderr.contains("All 2 files failed extraction"),
-        "stderr should surface the all-fail summary, got: {stderr}"
+        stderr.contains("0 succeeded, 2 failed (of 2 files)"),
+        "stderr should surface the per-file outcome summary, got: {stderr}"
     );
 }
 

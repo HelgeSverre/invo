@@ -175,6 +175,7 @@ async fn main() -> Result<()> {
     let streaming = is_ndjson_stream(&config, &output_options, input_count);
     let mut results = Vec::new();
     let mut success_count: usize = 0;
+    let mut failure_count: usize = 0;
 
     for input_spec in inputs {
         let input_path = input_spec.path.clone();
@@ -185,6 +186,7 @@ async fn main() -> Result<()> {
                 if input_count == 1 {
                     return Err(error);
                 }
+                failure_count += 1;
                 continue;
             }
         };
@@ -209,6 +211,7 @@ async fn main() -> Result<()> {
                 if input_count == 1 {
                     return Err(error);
                 }
+                failure_count += 1;
             }
         }
     }
@@ -217,17 +220,45 @@ async fn main() -> Result<()> {
         print!("{}", render_results(&results, &config, &output_options)?);
     }
 
-    // Batch with zero successes must surface a non-zero exit so wrappers like
-    // `invo *.pdf || handle` don't see false success and archive empty output.
-    // Single-file failures already propagated above as anyhow::Err.
-    if input_count > 1 && success_count == 0 {
+    // Single-file failures already propagated above as anyhow::Err. For batches
+    // (input_count > 1), translate the success/failure split into a script-safe
+    // exit code so wrappers like `invo *.pdf || handle` can react. See
+    // `decide_batch_exit_code` for the 0/2/3 contract.
+    if let Some(exit_code) = decide_batch_exit_code(input_count, success_count, failure_count) {
         eprintln!(
-            "All {input_count} files failed extraction; exiting non-zero. See log for per-file errors."
+            "Batch: {success_count} succeeded, {failure_count} failed (of {input_count} files). See log for per-file errors."
         );
-        std::process::exit(2);
+        std::process::exit(exit_code);
     }
 
     Ok(())
+}
+
+/// Script-safe exit-code contract for batch (multi-file) extraction:
+///
+/// - `0`: all inputs succeeded — no signal needed (returns `None`).
+/// - `2`: every input failed. Wrappers piping output to archive paths must
+///        not treat this as success.
+/// - `3`: at least one input failed but at least one succeeded. Distinct
+///        from 2 so scripts can choose to retry only the failed half or
+///        accept partial results.
+///
+/// Single-file runs (`input_count <= 1`) are handled at the call site by
+/// propagating the per-file error directly, so this returns `None` for them
+/// too — there's nothing to *summarise* in single-file mode.
+fn decide_batch_exit_code(
+    input_count: usize,
+    success_count: usize,
+    failure_count: usize,
+) -> Option<i32> {
+    if input_count <= 1 || failure_count == 0 {
+        return None;
+    }
+    if success_count == 0 {
+        Some(2)
+    } else {
+        Some(3)
+    }
 }
 
 fn init_logging(verbose: u8) {
@@ -294,5 +325,41 @@ fn agent_context_options(cli: &Cli) -> AgentContextOptions {
     AgentContextOptions {
         config: cli.config.clone(),
         json: cli.json,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_file_returns_none_so_caller_propagates_anyhow_err() {
+        // input_count <= 1 means single-file mode; the per-file error already
+        // surfaces via the function's Result, so no batch exit code is needed.
+        assert_eq!(decide_batch_exit_code(1, 1, 0), None);
+        assert_eq!(decide_batch_exit_code(1, 0, 1), None);
+        assert_eq!(decide_batch_exit_code(0, 0, 0), None);
+    }
+
+    #[test]
+    fn batch_all_success_returns_none_so_process_exits_zero() {
+        assert_eq!(decide_batch_exit_code(2, 2, 0), None);
+        assert_eq!(decide_batch_exit_code(10, 10, 0), None);
+    }
+
+    #[test]
+    fn batch_partial_failure_returns_exit_code_three() {
+        // At least one success and at least one failure → exit 3 so scripts
+        // can distinguish "retry the failures" from "everything broke".
+        assert_eq!(decide_batch_exit_code(2, 1, 1), Some(3));
+        assert_eq!(decide_batch_exit_code(10, 7, 3), Some(3));
+    }
+
+    #[test]
+    fn batch_all_failure_returns_exit_code_two() {
+        // Zero successes in a batch → exit 2 so 'invo *.pdf > out.json && mv'
+        // doesn't archive empty output.
+        assert_eq!(decide_batch_exit_code(2, 0, 2), Some(2));
+        assert_eq!(decide_batch_exit_code(10, 0, 10), Some(2));
     }
 }

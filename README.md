@@ -169,6 +169,17 @@ invo emits JSON by default (`--format json`), with a stable top-level shape. A s
 
 **stdout/stderr contract:** successful extraction data is written to stdout only. Diagnostics, progress, warnings, validation errors, and logs are written to stderr.
 
+**Exit codes** (batch mode, `--files-from` or glob with more than one match):
+
+| Code | Meaning                                                                                       |
+| ---- | --------------------------------------------------------------------------------------------- |
+| `0`  | All extractions succeeded.                                                                    |
+| `1`  | Setup error before extraction started (bad flags, missing config, no PDFs matched).           |
+| `2`  | Batch with **zero successes** — every extraction failed. stderr carries the summary.          |
+| `3`  | Batch with **partial success** — at least one succeeded and at least one failed.              |
+
+In single-file mode (one input), the per-file error propagates directly as a non-zero exit; codes `2` and `3` are batch-only. When a batch finishes with any failures, stderr prints a one-line summary: `Batch: N succeeded, M failed (of K files). See log for per-file errors.`
+
 ## Commands & flags
 
 | Flag | Values | Purpose |
