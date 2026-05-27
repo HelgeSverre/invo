@@ -771,8 +771,8 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_ollama_client(&provider, Duration::from_secs(60))
-            .expect("should build client");
+        let client =
+            build_ollama_client(&provider, Duration::from_secs(60)).expect("should build client");
         // Default URL is set in the builder, we can't easily inspect it but we know it works
         assert!(client.base_url().contains("localhost:11434"));
     }
@@ -787,8 +787,8 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_ollama_client(&provider, Duration::from_secs(60))
-            .expect("should build client");
+        let client =
+            build_ollama_client(&provider, Duration::from_secs(60)).expect("should build client");
         assert!(client.base_url().contains("custom-ollama"));
     }
 
@@ -1010,8 +1010,8 @@ mod tests {
 
     #[test]
     fn is_permanent_error_flags_401_unauthorized() {
-        let err = anyhow!("LLM completion failed")
-            .context("HTTP 401 Unauthorized: invalid api key");
+        let err =
+            anyhow!("LLM completion failed").context("HTTP 401 Unauthorized: invalid api key");
         assert!(
             is_permanent_error(&err),
             "401-shaped error must not be retried"
@@ -1067,6 +1067,9 @@ mod tests {
 
         // Far-out attempts must cap at 30s + jitter, not overflow.
         let huge = retry_delay(63).as_millis() as u64;
-        assert!(huge <= 30_400, "huge attempt should cap at 30s+jitter, got {huge}ms");
+        assert!(
+            huge <= 30_400,
+            "huge attempt should cap at 30s+jitter, got {huge}ms"
+        );
     }
 }

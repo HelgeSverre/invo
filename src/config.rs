@@ -410,7 +410,9 @@ fn ocr_doctor_warning(ocr: &OcrConfig) -> Option<String> {
         // `Same` reuses the extractor's credentials, which we can't resolve at
         // doctor time without picking a provider. `None` doesn't need a key.
         OcrConfig::None | OcrConfig::Same => return None,
-        OcrConfig::Mistral { api_key_env, .. } => ("mistral", "MISTRAL_API_KEY", api_key_env.as_str()),
+        OcrConfig::Mistral { api_key_env, .. } => {
+            ("mistral", "MISTRAL_API_KEY", api_key_env.as_str())
+        }
         OcrConfig::Llm {
             name, api_key_env, ..
         } => match name {
@@ -554,9 +556,8 @@ mod tests {
         // 4_294_967_295 (u32::MAX) would otherwise schedule billions of
         // sequential requests against the LLM provider. The custom
         // deserializer enforces MAX_RETRY_ATTEMPTS at parse time.
-        let error =
-            parse_config("llm:\n  extraction:\n    retry_attempts: 4294967295\n")
-                .expect_err("out-of-range retry_attempts should fail to parse");
+        let error = parse_config("llm:\n  extraction:\n    retry_attempts: 4294967295\n")
+            .expect_err("out-of-range retry_attempts should fail to parse");
 
         let msg = error.to_string();
         assert!(
@@ -618,7 +619,9 @@ mod tests {
 
         let warnings = config_doctor_warnings(&loaded(config));
         assert!(
-            warnings.iter().any(|w| w.contains(&var) && w.contains("not set")),
+            warnings
+                .iter()
+                .any(|w| w.contains(&var) && w.contains("not set")),
             "expected missing-env warning for {var}, got: {warnings:?}"
         );
     }
