@@ -40,10 +40,10 @@ pub fn extract_text(bytes: &[u8]) -> Result<PdfExtractionResult> {
 
 // Short identifier prefix of a SHA-256 over the PDF bytes. Today this is a
 // 16-char lowercase hex prefix (64 bits — fine for human-scale collision
-// avoidance; revisit when TASK-32 wires it into dedup, where birthday
-// collisions matter at ~4B documents). We slice by char (not byte) so a
-// future refactor to base64 or any non-ASCII encoding cannot panic on a
-// non-char-boundary index.
+// avoidance; if a future feature relies on this hash for dedup or similar,
+// birthday collisions matter at ~4B documents and the prefix should grow.
+// We slice by char (not byte) so a future refactor to base64 or any
+// non-ASCII encoding cannot panic on a non-char-boundary index.
 fn short_sha256(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
