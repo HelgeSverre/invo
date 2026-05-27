@@ -1,7 +1,7 @@
 ---
 id: TASK-43
 title: Avoid double-parse of config file in config_doctor_warnings
-status: In Progress
+status: Done
 assignee:
   - '@claude'
 created_date: '2026-05-27 00:08'
@@ -27,7 +27,7 @@ config doctor now lives in src/config_commands.rs after the TASK-24 split. It st
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 config_doctor_warnings moves into src/config.rs (or wherever Config lives) and accepts &Config
-- [ ] #2 Raw YAML probes are replaced with typed struct-field checks (config.actions.is_empty(), config.processing == ProcessingConfig::default(), etc.)
-- [x] #3 serde_yaml::{Mapping,Value} imports are removed from main.rs
+- [x] #1 config_doctor_warnings moves into src/config.rs (or wherever Config lives) and accepts &Config (now in src/config.rs, takes &LoadedConfig so we can keep the "config file is missing" branch — interior reads loaded.config: &Config directly)
+- [x] #2 Raw YAML probes are replaced with typed struct-field checks (match on OcrConfig variants; the legacy actions[].type = notify probe deleted because deny_unknown_fields rejects it at parse time)
+- [x] #3 serde_yaml::{Mapping,Value} imports are removed from main.rs (and from src/config_commands.rs — the value_at + mapping_get helpers went with them)
 <!-- AC:END -->

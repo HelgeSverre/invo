@@ -1,9 +1,8 @@
 use anyhow::{bail, Context, Result};
 use serde::Serialize;
-use serde_yaml::{Mapping, Value};
 use std::path::PathBuf;
 
-use crate::config::{self, load_config_status, Config, LoadedConfig};
+use crate::config::{self, config_doctor_warnings, load_config_status, Config};
 use crate::output::{print_json, with_newline};
 use crate::ConfigCommand;
 
@@ -145,7 +144,7 @@ fn handle_config_validate(options: &ConfigCommandOptions, strict: bool) -> Resul
 
 fn handle_config_doctor(options: &ConfigCommandOptions) -> Result<()> {
     let loaded = load_config_status(options.config.as_ref())?;
-    let warnings = config_doctor_warnings(&loaded)?;
+    let warnings = config_doctor_warnings(&loaded);
     let output = ConfigDoctorOutput {
         path: loaded.path.display().to_string(),
         exists: loaded.exists,
@@ -172,93 +171,6 @@ fn handle_config_schema(_options: &ConfigCommandOptions) -> Result<()> {
     let schema = schemars::schema_for!(Config);
     print_json(&schema)?;
     Ok(())
-}
-
-fn config_doctor_warnings(loaded: &LoadedConfig) -> Result<Vec<String>> {
-    if !loaded.exists {
-        return Ok(vec![
-            "config file is missing; invo will use built-in defaults".to_string(),
-        ]);
-    }
-
-    let contents = std::fs::read_to_string(&loaded.path)
-        .with_context(|| format!("Failed to read config file: {}", loaded.path.display()))?;
-    let value: Value = serde_yaml::from_str(&contents)
-        .with_context(|| format!("Failed to parse config file: {}", loaded.path.display()))?;
-    let mut warnings = Vec::new();
-
-    // actions[].type = notify was dropped in TASK-31. Warn if any survives so
-    // the user knows to remove or replace with a hook.
-    if let Some(actions) = value_at(&value, &["actions"]).and_then(Value::as_sequence) {
-        for (i, action) in actions.iter().enumerate() {
-            if value_at(action, &["type"]).and_then(Value::as_str) == Some("notify") {
-                warnings.push(format!(
-                    "actions[{i}].type = notify was removed; replace with a hook action that calls notify-send / osascript / terminal-notifier"
-                ));
-            }
-        }
-    }
-    if let Some(ocr) = value_at(&value, &["processing", "ocr"]) {
-        let mode = value_at(ocr, &["mode"]).and_then(Value::as_str);
-        let api_key_env_override = value_at(ocr, &["api_key_env"]).and_then(Value::as_str);
-        let llm_name = value_at(ocr, &["name"]).and_then(Value::as_str);
-
-        let env_for = |provider: &str| -> Option<&'static str> {
-            match provider {
-                "mistral" => Some("MISTRAL_API_KEY"),
-                "anthropic" => Some("ANTHROPIC_API_KEY"),
-                "openai" => Some("OPENAI_API_KEY"),
-                "ollama" => None,
-                _ => None,
-            }
-        };
-
-        // Valid modes are none | same | mistral | llm. For `same` we can't
-        // know the extractor without resolving the active provider here, so
-        // skip the API-key sanity check for that mode. For `mistral` and
-        // `llm` we know which credential to look at.
-        let provider_for_env = match mode {
-            Some("mistral") => Some("mistral"),
-            Some("llm") => llm_name,
-            _ => None,
-        };
-
-        if let Some(provider) = provider_for_env {
-            if let Some(default_env) = env_for(provider) {
-                let env = api_key_env_override.unwrap_or(default_env);
-                if std::env::var(env).is_err() {
-                    warnings.push(format!(
-                        "processing.ocr.mode = {} but {} is not set in the environment",
-                        mode.unwrap_or(""),
-                        env
-                    ));
-                }
-            }
-        }
-
-        if mode == Some("llm") && llm_name == Some("ollama") && !cfg!(feature = "ollama-ocr") {
-            warnings.push(
-                "processing.ocr.mode = llm with name: ollama requires the `ollama-ocr` Cargo feature (PDFium rasterization). Rebuild with `cargo install --features ollama-ocr`."
-                    .to_string(),
-            );
-        }
-    }
-    Ok(warnings)
-}
-
-fn value_at<'a>(value: &'a Value, path: &[&str]) -> Option<&'a Value> {
-    let mut current = value;
-    for key in path {
-        let mapping = current.as_mapping()?;
-        current = mapping_get(mapping, key)?;
-    }
-    Some(current)
-}
-
-fn mapping_get<'a>(mapping: &'a Mapping, wanted: &str) -> Option<&'a Value> {
-    mapping
-        .iter()
-        .find_map(|(key, value)| (key.as_str() == Some(wanted)).then_some(value))
 }
 
 #[derive(Serialize)]

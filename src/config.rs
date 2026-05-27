@@ -382,6 +382,95 @@ pub struct LoadedConfig {
     pub config: Config,
 }
 
+/// Diagnose configurations that parse but won't behave as the user expects.
+///
+/// Operates on the already-parsed `&Config` rather than re-reading and
+/// re-parsing the YAML. Anything that `deny_unknown_fields` already rejects
+/// at parse time (e.g. legacy `actions[].type = notify`) is *not* listed here
+/// — the parse error is the user-facing message for that class of mistake.
+pub fn config_doctor_warnings(loaded: &LoadedConfig) -> Vec<String> {
+    if !loaded.exists {
+        return vec!["config file is missing; invo will use built-in defaults".to_string()];
+    }
+
+    let mut warnings = Vec::new();
+    if let Some(warning) = ocr_doctor_warning(&loaded.config.processing.ocr) {
+        warnings.push(warning);
+    }
+    if let Some(warning) = ocr_feature_gate_warning(&loaded.config.processing.ocr) {
+        warnings.push(warning);
+    }
+    warnings
+}
+
+/// If the configured OCR mode needs a hosted API key, surface that the
+/// required env var is not set so users find out before the first run.
+fn ocr_doctor_warning(ocr: &OcrConfig) -> Option<String> {
+    let (mode_label, default_env, override_env) = match ocr {
+        // `Same` reuses the extractor's credentials, which we can't resolve at
+        // doctor time without picking a provider. `None` doesn't need a key.
+        OcrConfig::None | OcrConfig::Same => return None,
+        OcrConfig::Mistral { api_key_env, .. } => ("mistral", "MISTRAL_API_KEY", api_key_env.as_str()),
+        OcrConfig::Llm {
+            name, api_key_env, ..
+        } => match name {
+            ProviderName::Mistral => (
+                "llm",
+                "MISTRAL_API_KEY",
+                api_key_env.as_deref().unwrap_or("MISTRAL_API_KEY"),
+            ),
+            ProviderName::Anthropic => (
+                "llm",
+                "ANTHROPIC_API_KEY",
+                api_key_env.as_deref().unwrap_or("ANTHROPIC_API_KEY"),
+            ),
+            ProviderName::OpenAI => (
+                "llm",
+                "OPENAI_API_KEY",
+                api_key_env.as_deref().unwrap_or("OPENAI_API_KEY"),
+            ),
+            // Local Ollama doesn't take a key.
+            ProviderName::Ollama => return None,
+        },
+    };
+
+    // Prefer the user's override if provided, falling back to the provider
+    // default. We warn only when *no* value of the chosen var is set.
+    let env_var = if override_env.is_empty() {
+        default_env
+    } else {
+        override_env
+    };
+    if std::env::var(env_var).is_err() {
+        Some(format!(
+            "processing.ocr.mode = {mode_label} but {env_var} is not set in the environment"
+        ))
+    } else {
+        None
+    }
+}
+
+/// OCR via Ollama requires the `ollama-ocr` Cargo feature (PDFium
+/// rasterization) to be compiled in; warn loudly if the config asks for it
+/// but the running binary was built without the feature.
+fn ocr_feature_gate_warning(ocr: &OcrConfig) -> Option<String> {
+    let asks_ollama_ocr = matches!(
+        ocr,
+        OcrConfig::Llm {
+            name: ProviderName::Ollama,
+            ..
+        }
+    );
+    if asks_ollama_ocr && !cfg!(feature = "ollama-ocr") {
+        Some(
+            "processing.ocr.mode = llm with name: ollama requires the `ollama-ocr` Cargo feature (PDFium rasterization). Rebuild with `cargo install --features ollama-ocr`."
+                .to_string(),
+        )
+    } else {
+        None
+    }
+}
+
 /// Get the default config file path (~/.config/invo/config.yaml)
 pub fn user_config_path() -> PathBuf {
     dirs::home_dir()
@@ -487,5 +576,91 @@ mod tests {
         ))
         .expect("retry_attempts == bound should parse");
         assert_eq!(config.llm.extraction.retry_attempts, MAX_RETRY_ATTEMPTS);
+    }
+
+    fn loaded(config: Config) -> LoadedConfig {
+        LoadedConfig {
+            path: PathBuf::from("test-config.yaml"),
+            exists: true,
+            config,
+        }
+    }
+
+    #[test]
+    fn doctor_reports_missing_config_file() {
+        let absent = LoadedConfig {
+            path: PathBuf::from("nowhere.yaml"),
+            exists: false,
+            config: Config::default(),
+        };
+        let warnings = config_doctor_warnings(&absent);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].contains("missing"));
+    }
+
+    #[test]
+    fn doctor_quiet_for_default_config_with_no_ocr() {
+        // Config::default() has OcrConfig::None — no env vars needed.
+        let warnings = config_doctor_warnings(&loaded(Config::default()));
+        assert!(warnings.is_empty(), "got unexpected warnings: {warnings:?}");
+    }
+
+    #[test]
+    fn doctor_warns_when_mistral_ocr_env_var_is_unset() {
+        let var = format!("INVO_TEST_OCR_KEY_{}", std::process::id());
+        let mut config = Config::default();
+        config.processing.ocr = OcrConfig::Mistral {
+            model: "mistral-ocr-latest".to_string(),
+            api_key_env: var.clone(),
+        };
+        // Make sure the var really is unset before asserting.
+        std::env::remove_var(&var);
+
+        let warnings = config_doctor_warnings(&loaded(config));
+        assert!(
+            warnings.iter().any(|w| w.contains(&var) && w.contains("not set")),
+            "expected missing-env warning for {var}, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_silent_when_mistral_ocr_env_var_is_present() {
+        let var = format!("INVO_TEST_OCR_KEY_PRESENT_{}", std::process::id());
+        std::env::set_var(&var, "value-does-not-matter");
+
+        let mut config = Config::default();
+        config.processing.ocr = OcrConfig::Mistral {
+            model: "mistral-ocr-latest".to_string(),
+            api_key_env: var.clone(),
+        };
+
+        let warnings = config_doctor_warnings(&loaded(config));
+        std::env::remove_var(&var);
+        assert!(
+            warnings.is_empty(),
+            "warnings should be empty when env var is set, got: {warnings:?}"
+        );
+    }
+
+    #[test]
+    fn doctor_warns_when_ollama_llm_ocr_missing_feature_gate() {
+        // The default test binary is built without the `ollama-ocr` feature,
+        // so this path always fires the feature-gate warning.
+        if cfg!(feature = "ollama-ocr") {
+            // Skip — the feature *is* compiled in, warning would not fire.
+            return;
+        }
+        let mut config = Config::default();
+        config.processing.ocr = OcrConfig::Llm {
+            name: ProviderName::Ollama,
+            model: "llama3.2-vision".to_string(),
+            api_key_env: None,
+            base_url: None,
+        };
+        let warnings = config_doctor_warnings(&loaded(config));
+        assert!(
+            warnings.iter().any(|w| w.contains("ollama-ocr")),
+            "expected ollama-ocr feature-gate warning, got: {warnings:?}"
+        );
     }
 }
