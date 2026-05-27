@@ -4,6 +4,30 @@ use anyhow::{anyhow, Context, Result};
 use rig_core::client::{CompletionClient, Nothing};
 use rig_core::completion::{AssistantContent, CompletionModel};
 use rig_core::providers::{anthropic, mistral, ollama, openai};
+use std::sync::LazyLock;
+use std::time::Duration;
+
+/// The Invoice JSON schema, generated once per process. `complete_invoice_once`
+/// previously rebuilt this on every LLM call and every retry — a 10-file batch
+/// with retry_attempts=2 walked the derive tree 30 times where 1 sufficed.
+/// `extract_assistant_payload` reads the schema's `title` field on tool-call
+/// fallback paths and reuses the same cached schema.
+static INVOICE_SCHEMA: LazyLock<schemars::Schema> =
+    LazyLock::new(|| schemars::schema_for!(Invoice));
+
+fn invoice_schema() -> &'static schemars::Schema {
+    &INVOICE_SCHEMA
+}
+
+/// Default per-request timeout for hosted cloud LLM providers when
+/// `llm.extraction.timeout_secs` is not configured.
+const DEFAULT_HOSTED_TIMEOUT_SECS: u64 = 60;
+
+/// Default per-request timeout for local Ollama when
+/// `llm.extraction.timeout_secs` is not configured. Local inference is
+/// noticeably slower than hosted APIs, especially for first-token latency
+/// on cold models, so the budget is larger.
+const DEFAULT_OLLAMA_TIMEOUT_SECS: u64 = 120;
 
 pub struct LlmExtraction {
     pub invoice: Invoice,
@@ -18,6 +42,7 @@ pub struct LlmExtraction {
 pub struct LlmContext {
     provider: Provider,
     client: LlmClient,
+    timeout: Duration,
 }
 
 enum LlmClient {
@@ -30,22 +55,27 @@ enum LlmClient {
 impl LlmContext {
     pub fn build(config: &Config, provider_override: Option<ProviderName>) -> Result<Self> {
         let provider = select_provider_config(config, provider_override)?.clone();
+        let timeout = resolve_timeout(provider.name, &config.llm.extraction);
         let client = match provider.name {
-            ProviderName::Ollama => LlmClient::Ollama(build_ollama_client(&provider)?),
+            ProviderName::Ollama => LlmClient::Ollama(build_ollama_client(&provider, timeout)?),
             ProviderName::OpenAI => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::OpenAI(build_openai_client(&provider, api_key)?)
+                LlmClient::OpenAI(build_openai_client(&provider, api_key, timeout)?)
             }
             ProviderName::Anthropic => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::Anthropic(build_anthropic_client(&provider, api_key)?)
+                LlmClient::Anthropic(build_anthropic_client(&provider, api_key, timeout)?)
             }
             ProviderName::Mistral => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::Mistral(build_mistral_client(&provider, api_key)?)
+                LlmClient::Mistral(build_mistral_client(&provider, api_key, timeout)?)
             }
         };
-        Ok(Self { provider, client })
+        Ok(Self {
+            provider,
+            client,
+            timeout,
+        })
     }
 
     pub fn provider(&self) -> &Provider {
@@ -63,6 +93,7 @@ impl LlmContext {
                 complete_invoice(
                     c.completion_model(&self.provider.model),
                     config,
+                    self.timeout,
                     &system_prompt,
                     &user_message,
                 )
@@ -72,6 +103,7 @@ impl LlmContext {
                 complete_invoice(
                     c.completion_model(&self.provider.model),
                     config,
+                    self.timeout,
                     &system_prompt,
                     &user_message,
                 )
@@ -81,6 +113,7 @@ impl LlmContext {
                 complete_invoice(
                     c.completion_model(&self.provider.model),
                     config,
+                    self.timeout,
                     &system_prompt,
                     &user_message,
                 )
@@ -90,6 +123,7 @@ impl LlmContext {
                 complete_invoice(
                     c.completion_model(&self.provider.model),
                     config,
+                    self.timeout,
                     &system_prompt,
                     &user_message,
                 )
@@ -131,7 +165,34 @@ pub(crate) fn select_provider_config(
     }
 }
 
-fn build_ollama_client(provider_config: &Provider) -> Result<ollama::Client> {
+/// Resolve the effective per-request timeout for the active provider. Honors
+/// `llm.extraction.timeout_secs` when set; otherwise picks a provider-aware
+/// default — local Ollama gets a longer budget because first-token latency
+/// on cold local models is much higher than on hosted APIs.
+fn resolve_timeout(
+    provider_name: ProviderName,
+    extraction: &crate::config::ExtractionSettings,
+) -> Duration {
+    let secs = extraction.timeout_secs.unwrap_or(match provider_name {
+        ProviderName::Ollama => DEFAULT_OLLAMA_TIMEOUT_SECS,
+        _ => DEFAULT_HOSTED_TIMEOUT_SECS,
+    });
+    Duration::from_secs(secs)
+}
+
+/// Build a reqwest::Client with the configured per-request timeout so a
+/// stalled TCP/TLS handshake or never-responding server cannot wedge the
+/// tokio task indefinitely. We mirror the crate's default TLS feature set
+/// (rustls-tls, JSON) by relying on the workspace reqwest configuration.
+fn build_http_client(timeout: Duration) -> Result<reqwest::Client> {
+    reqwest::Client::builder()
+        .timeout(timeout)
+        .build()
+        .context("Failed to build reqwest client for LLM provider")
+}
+
+fn build_ollama_client(provider_config: &Provider, timeout: Duration) -> Result<ollama::Client> {
+    let http = build_http_client(timeout)?;
     Ok(ollama::Client::builder()
         .api_key(Nothing)
         .base_url(
@@ -140,10 +201,16 @@ fn build_ollama_client(provider_config: &Provider) -> Result<ollama::Client> {
                 .as_deref()
                 .unwrap_or(DEFAULT_OLLAMA_URL),
         )
+        .http_client(http)
         .build()?)
 }
 
-fn build_openai_client(provider_config: &Provider, api_key: String) -> Result<openai::Client> {
+fn build_openai_client(
+    provider_config: &Provider,
+    api_key: String,
+    timeout: Duration,
+) -> Result<openai::Client> {
+    let http = build_http_client(timeout)?;
     Ok(openai::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -152,13 +219,16 @@ fn build_openai_client(provider_config: &Provider, api_key: String) -> Result<op
                 .as_deref()
                 .unwrap_or("https://api.openai.com/v1"),
         )
+        .http_client(http)
         .build()?)
 }
 
 fn build_anthropic_client(
     provider_config: &Provider,
     api_key: String,
+    timeout: Duration,
 ) -> Result<anthropic::Client> {
+    let http = build_http_client(timeout)?;
     Ok(anthropic::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -167,10 +237,16 @@ fn build_anthropic_client(
                 .as_deref()
                 .unwrap_or("https://api.anthropic.com"),
         )
+        .http_client(http)
         .build()?)
 }
 
-fn build_mistral_client(provider_config: &Provider, api_key: String) -> Result<mistral::Client> {
+fn build_mistral_client(
+    provider_config: &Provider,
+    api_key: String,
+    timeout: Duration,
+) -> Result<mistral::Client> {
+    let http = build_http_client(timeout)?;
     Ok(mistral::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -179,12 +255,14 @@ fn build_mistral_client(provider_config: &Provider, api_key: String) -> Result<m
                 .as_deref()
                 .unwrap_or("https://api.mistral.ai"),
         )
+        .http_client(http)
         .build()?)
 }
 
 async fn complete_invoice<M>(
     model: M,
     config: &Config,
+    timeout: Duration,
     system_prompt: &str,
     user_message: &str,
 ) -> Result<Invoice>
@@ -195,7 +273,8 @@ where
 
     for attempt in 0..=max_retries {
         let result =
-            complete_invoice_once(model.clone(), config, system_prompt, user_message).await;
+            complete_invoice_once(model.clone(), config, timeout, system_prompt, user_message)
+                .await;
 
         match result {
             Ok(invoice) => return Ok(invoice),
@@ -216,20 +295,24 @@ where
 async fn complete_invoice_once<M>(
     model: M,
     config: &Config,
+    timeout: Duration,
     system_prompt: &str,
     user_message: &str,
 ) -> Result<Invoice>
 where
     M: CompletionModel,
 {
-    let response = model
+    let send_fut = model
         .completion_request(user_message.to_string())
         .preamble(system_prompt.to_string())
         .temperature(config.llm.extraction.temperature as f64)
         .max_tokens(config.llm.extraction.max_tokens as u64)
-        .output_schema(schemars::schema_for!(Invoice))
-        .send()
+        .output_schema(invoice_schema().clone())
+        .send();
+
+    let response = tokio::time::timeout(timeout, send_fut)
         .await
+        .map_err(|_| anyhow!("LLM request timed out after {}s", timeout.as_secs()))?
         .context("LLM completion failed")?;
 
     let content = assistant_text(response.choice)?;
@@ -267,7 +350,7 @@ fn extract_assistant_payload(contents: Vec<AssistantContent>) -> Result<String> 
         return Ok(trimmed.to_string());
     }
 
-    let schema_name = schemars::schema_for!(Invoice)
+    let schema_name = invoice_schema()
         .as_object()
         .and_then(|o| o.get("title"))
         .and_then(|v| v.as_str())
@@ -530,9 +613,15 @@ mod tests {
             r#"{"vendor":"Acme","invoice_date":"2026-05-25","total_amount":12.5,"currency":"USD"}"#,
         );
 
-        let invoice = complete_invoice(model.clone(), &config, "system prompt", "user message")
-            .await
-            .expect("mock extraction should parse");
+        let invoice = complete_invoice(
+            model.clone(),
+            &config,
+            Duration::from_secs(30),
+            "system prompt",
+            "user message",
+        )
+        .await
+        .expect("mock extraction should parse");
 
         let requests = model.requests();
         assert_eq!(requests.len(), 1);
@@ -564,9 +653,15 @@ mod tests {
             ),
         ]);
 
-        complete_invoice(model.clone(), &config, "system prompt", "user message")
-            .await
-            .expect("second attempt should succeed");
+        complete_invoice(
+            model.clone(),
+            &config,
+            Duration::from_secs(30),
+            "system prompt",
+            "user message",
+        )
+        .await
+        .expect("second attempt should succeed");
 
         assert_eq!(model.request_count(), 2);
     }
@@ -605,7 +700,8 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_ollama_client(&provider).expect("should build client");
+        let client = build_ollama_client(&provider, Duration::from_secs(60))
+            .expect("should build client");
         // Default URL is set in the builder, we can't easily inspect it but we know it works
         assert!(client.base_url().contains("localhost:11434"));
     }
@@ -620,7 +716,8 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_ollama_client(&provider).expect("should build client");
+        let client = build_ollama_client(&provider, Duration::from_secs(60))
+            .expect("should build client");
         assert!(client.base_url().contains("custom-ollama"));
     }
 
@@ -634,8 +731,8 @@ mod tests {
             api_key_env: None,
         };
 
-        let client =
-            build_openai_client(&provider, "sk-test".to_string()).expect("should build client");
+        let client = build_openai_client(&provider, "sk-test".to_string(), Duration::from_secs(60))
+            .expect("should build client");
         assert!(client.base_url().contains("api.openai.com"));
     }
 
@@ -651,10 +748,153 @@ mod tests {
             api_key_env: None,
         };
 
-        let client =
-            build_openai_client(&provider, "sk-test".to_string()).expect("should build client");
+        let client = build_openai_client(&provider, "sk-test".to_string(), Duration::from_secs(60))
+            .expect("should build client");
         assert!(client.base_url().contains("proxy.corp.local"));
         assert!(!client.base_url().contains("api.openai.com"));
+    }
+
+    #[tokio::test]
+    async fn complete_invoice_errors_when_send_hangs_past_timeout() {
+        // Regression for TASK-41: a non-responsive provider must not wedge
+        // the extraction task. complete_invoice_once wraps .send().await in
+        // tokio::time::timeout; with a hanging CompletionModel and a 50ms
+        // budget the future must resolve to a "timed out" error well before
+        // a real timeout would.
+        use rig_core::completion::{
+            CompletionError, CompletionRequest, CompletionResponse, GetTokenUsage, Usage,
+        };
+        use rig_core::streaming::StreamingCompletionResponse;
+        use rig_core::OneOrMany;
+        use serde::{Deserialize, Serialize};
+
+        #[derive(Clone, Debug, Default, Serialize, Deserialize)]
+        struct HangResponse;
+        impl GetTokenUsage for HangResponse {
+            fn token_usage(&self) -> Option<Usage> {
+                None
+            }
+        }
+
+        #[derive(Clone, Default)]
+        struct HangingModel;
+
+        impl CompletionModel for HangingModel {
+            type Response = HangResponse;
+            type StreamingResponse = HangResponse;
+            type Client = ();
+
+            fn make(_: &Self::Client, _: impl Into<String>) -> Self {
+                Self
+            }
+
+            async fn completion(
+                &self,
+                _request: CompletionRequest,
+            ) -> Result<CompletionResponse<Self::Response>, CompletionError> {
+                // Never resolves — simulates a hung Ollama / cloud endpoint.
+                std::future::pending::<()>().await;
+                unreachable!("pending future never resolves")
+            }
+
+            async fn stream(
+                &self,
+                _request: CompletionRequest,
+            ) -> Result<StreamingCompletionResponse<Self::StreamingResponse>, CompletionError>
+            {
+                Err(CompletionError::ProviderError(
+                    "stream not used in this test".to_string(),
+                ))
+            }
+        }
+
+        let _ = OneOrMany::<AssistantContent>::one(AssistantContent::text("unused"));
+
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![provider(ProviderName::Ollama, true, "hang")],
+                extraction: ExtractionSettings {
+                    retry_attempts: 0,
+                    ..ExtractionSettings::default()
+                },
+            },
+            ..Config::default()
+        };
+
+        let started = std::time::Instant::now();
+        let error = complete_invoice(
+            HangingModel,
+            &config,
+            Duration::from_millis(50),
+            "system prompt",
+            "user message",
+        )
+        .await
+        .expect_err("hanging model must time out, not return a response");
+        let elapsed = started.elapsed();
+
+        assert!(
+            elapsed < Duration::from_secs(2),
+            "timeout should fire well before a real provider would (elapsed = {elapsed:?})"
+        );
+        let message = format!("{error}");
+        assert!(
+            message.contains("timed out"),
+            "expected a timeout error, got: {message}"
+        );
+    }
+
+    #[test]
+    fn timeout_defaults_differ_for_ollama_and_hosted_providers() {
+        // Defaults should apply when llm.extraction.timeout_secs is unset:
+        // local Ollama gets the larger 120s budget, hosted APIs get 60s.
+        let extraction = ExtractionSettings::default();
+        assert_eq!(
+            resolve_timeout(ProviderName::Ollama, &extraction),
+            Duration::from_secs(DEFAULT_OLLAMA_TIMEOUT_SECS)
+        );
+        for hosted in [
+            ProviderName::OpenAI,
+            ProviderName::Anthropic,
+            ProviderName::Mistral,
+        ] {
+            assert_eq!(
+                resolve_timeout(hosted, &extraction),
+                Duration::from_secs(DEFAULT_HOSTED_TIMEOUT_SECS)
+            );
+        }
+    }
+
+    #[test]
+    fn timeout_config_override_applies_to_every_provider() {
+        let extraction = ExtractionSettings {
+            timeout_secs: Some(7),
+            ..ExtractionSettings::default()
+        };
+        for name in [
+            ProviderName::Ollama,
+            ProviderName::OpenAI,
+            ProviderName::Anthropic,
+            ProviderName::Mistral,
+        ] {
+            assert_eq!(resolve_timeout(name, &extraction), Duration::from_secs(7));
+        }
+    }
+
+    #[test]
+    fn llm_context_exposes_resolved_timeout() {
+        let config = Config {
+            llm: LlmConfig {
+                providers: vec![provider(ProviderName::Ollama, true, "qwen-live")],
+                extraction: ExtractionSettings {
+                    timeout_secs: Some(15),
+                    ..ExtractionSettings::default()
+                },
+            },
+            ..Config::default()
+        };
+        let ctx = LlmContext::build(&config, None).expect("ctx builds");
+        assert_eq!(ctx.timeout, Duration::from_secs(15));
     }
 
     #[tokio::test]
