@@ -82,24 +82,48 @@ fn render_yaml_results(results: &[ExtractionResult]) -> Result<String> {
 }
 
 fn render_csv_results(results: &[ExtractionResult]) -> Result<String> {
-    let mut rows = vec!["vendor,date,total,currency,invoice_number".to_string()];
+    let mut writer = csv::Writer::from_writer(Vec::new());
+    writer.write_record(["vendor", "date", "total", "currency", "invoice_number"])?;
 
     for result in results {
-        rows.push(format!(
-            "\"{}\",{},{},{},\"{}\"",
-            csv_escape(&result.invoice.vendor),
-            result.invoice.invoice_date,
-            result.invoice.total_amount,
-            result.invoice.currency,
-            result.invoice.invoice_number.as_deref().unwrap_or("")
-        ));
+        writer.write_record([
+            defuse_formula(&result.invoice.vendor),
+            defuse_formula(&result.invoice.invoice_date.to_string()),
+            defuse_formula(&format_total(result.invoice.total_amount)),
+            defuse_formula(&result.invoice.currency),
+            defuse_formula(result.invoice.invoice_number.as_deref().unwrap_or("")),
+        ])?;
     }
 
-    Ok(with_newline(rows.join("\n")))
+    let bytes = writer.into_inner()?;
+    Ok(String::from_utf8(bytes)?)
 }
 
-fn csv_escape(value: &str) -> String {
-    value.replace('"', "\"\"")
+// Prefix fields whose first byte is in the spreadsheet-formula trigger set with
+// a leading single quote so Excel/Numbers/LibreOffice treat them as text.
+// Covers OWASP CSV-injection chars =, +, -, @, plus tab and CR which some
+// engines also honour as formula intros.
+fn defuse_formula(value: &str) -> String {
+    match value.as_bytes().first() {
+        Some(b'=' | b'+' | b'-' | b'@' | b'\t' | b'\r') => {
+            let mut defused = String::with_capacity(value.len() + 1);
+            defused.push('\'');
+            defused.push_str(value);
+            defused
+        }
+        _ => value.to_string(),
+    }
+}
+
+// NaN/Inf serialise as "NaN"/"inf" via `{}` which is technically valid CSV but
+// useless to spreadsheets. Emit an empty field instead so downstream pipelines
+// see "no number here" rather than a text label masquerading as a total.
+fn format_total(total: f64) -> String {
+    if total.is_finite() {
+        total.to_string()
+    } else {
+        String::new()
+    }
 }
 
 pub(crate) fn print_json<T: Serialize>(value: &T) -> Result<()> {
@@ -288,6 +312,141 @@ mod tests {
         let mut opts = options();
         opts.format = Some(OutputFormat::Yaml);
         assert!(!is_ndjson_stream(&cfg, &opts, 5));
+    }
+
+    fn csv_options() -> OutputOptions {
+        let mut opts = options();
+        opts.format = Some(OutputFormat::Csv);
+        opts
+    }
+
+    fn csv_result(invoice: Invoice) -> ExtractionResult {
+        let mut base = result("placeholder");
+        base.invoice = invoice;
+        base
+    }
+
+    fn invoice_with(vendor: &str, total: f64, invoice_number: Option<&str>) -> Invoice {
+        Invoice {
+            vendor: vendor.to_string(),
+            invoice_date: NaiveDate::from_ymd_opt(2026, 5, 25).expect("valid date"),
+            total_amount: total,
+            currency: "USD".to_string(),
+            invoice_number: invoice_number.map(str::to_string),
+            due_date: None,
+            subtotal: None,
+            tax_amount: None,
+            tax_rate: None,
+            discount_amount: None,
+            vendor_website: None,
+            vendor_email: None,
+            vendor_address: None,
+            payment_method: None,
+            card_last_four: None,
+            items: Vec::new(),
+            category: None,
+            description: None,
+            buyer_name: None,
+            confidence: None,
+        }
+    }
+
+    #[test]
+    fn csv_defuses_formula_leading_values() {
+        // Each of these vendors would execute as a formula if Excel opened the
+        // CSV. The render must prefix them with ' so they parse as text.
+        for malicious in ["=cmd|/c calc!A0", "+1+1", "-7", "@SUM(A1:A2)"] {
+            let output = render_results(
+                &[csv_result(invoice_with(malicious, 1.0, None))],
+                &Config::default(),
+                &csv_options(),
+            )
+            .expect("csv should render");
+
+            let data_line = output.lines().nth(1).expect("data row");
+            assert!(
+                data_line.contains(&format!("'{malicious}")),
+                "vendor {malicious:?} should be prefixed with apostrophe, got: {data_line}"
+            );
+        }
+    }
+
+    #[test]
+    fn csv_defuses_tab_and_cr_leading_values() {
+        // Tab and CR also trigger formula evaluation in some spreadsheet
+        // engines. Embed inside the vendor as the first byte.
+        for (label, malicious) in [("tab", "\tfoo"), ("cr", "\rfoo")] {
+            let output = render_results(
+                &[csv_result(invoice_with(malicious, 1.0, None))],
+                &Config::default(),
+                &csv_options(),
+            )
+            .unwrap_or_else(|err| panic!("csv should render for {label}: {err}"));
+
+            // csv writer will wrap CR/tab-bearing fields in quotes; the
+            // defused payload appears as "'<char>foo". Search the raw bytes.
+            assert!(
+                output.contains(&format!("'{malicious}")),
+                "{label}-leading vendor should be apostrophe-prefixed, got: {output:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn csv_quotes_embedded_commas_newlines_and_doubles_quotes() {
+        let output = render_results(
+            &[csv_result(invoice_with(
+                "Acme, Inc.\n\"Subsidiary\"",
+                1.0,
+                None,
+            ))],
+            &Config::default(),
+            &csv_options(),
+        )
+        .expect("csv should render");
+
+        // Field with comma, newline, and quote must be wrapped in quotes with
+        // the embedded quotes doubled. The csv crate handles all three.
+        assert!(
+            output.contains("\"Acme, Inc.\n\"\"Subsidiary\"\"\""),
+            "field should be quoted with doubled quotes, got: {output:?}"
+        );
+
+        // Sanity: round-trip parse with a reader and confirm the vendor field.
+        let mut reader = csv::Reader::from_reader(output.as_bytes());
+        let row = reader
+            .records()
+            .next()
+            .expect("one row")
+            .expect("row should parse");
+        assert_eq!(row.get(0), Some("Acme, Inc.\n\"Subsidiary\""));
+    }
+
+    #[test]
+    fn csv_renders_empty_total_for_nan_and_infinity() {
+        for total in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let output = render_results(
+                &[csv_result(invoice_with("Acme", total, None))],
+                &Config::default(),
+                &csv_options(),
+            )
+            .expect("csv should render");
+
+            let data_line = output.lines().nth(1).expect("data row");
+            // Header: vendor,date,total,currency,invoice_number -> total is
+            // column index 2. The csv parser is the source of truth.
+            let mut reader = csv::Reader::from_reader(output.as_bytes());
+            let row = reader
+                .records()
+                .next()
+                .expect("one row")
+                .expect("row should parse");
+            assert_eq!(
+                row.get(2),
+                Some(""),
+                "non-finite total should serialise empty (line was {data_line:?})"
+            );
+        }
     }
 
     #[test]

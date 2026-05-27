@@ -1,8 +1,9 @@
 ---
 id: TASK-36
 title: Harden CSV rendering for formula injection and field-breaking content
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:06'
 updated_date: '2026-05-27 00:49'
 labels:
@@ -29,8 +30,8 @@ render_csv_results writes Invoice vendor, invoice_number, currency, and total_am
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 All Invoice fields are CSV-escaped: quote-wrapped, embedded quotes doubled
-- [ ] #2 Fields starting with =, +, -, @, tab, or CR are prefixed with a leading single quote
-- [ ] #3 Implementation uses the csv crate (or a tested equivalent) instead of hand-rolled csv_escape
-- [ ] #4 Regression tests cover formula-leading values, embedded commas, embedded newlines, embedded quotes, and NaN/Inf totals
+- [x] #1 All Invoice fields are CSV-escaped: quote-wrapped, embedded quotes doubled
+- [x] #2 Fields starting with =, +, -, @, tab, or CR are prefixed with a leading single quote
+- [x] #3 Implementation uses the csv crate (or a tested equivalent) instead of hand-rolled csv_escape
+- [x] #4 Regression tests cover formula-leading values, embedded commas, embedded newlines, embedded quotes, and NaN/Inf totals
 <!-- AC:END -->
