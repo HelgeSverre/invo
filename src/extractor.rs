@@ -10,14 +10,18 @@ use crate::llm::LlmContext;
 use crate::pdf::{extract_text, MIN_MEANINGFUL_TEXT_LENGTH};
 use crate::prompt::{extraction_system_prompt, extraction_user_message};
 
-pub async fn extract_invoice(
+struct PdfText {
+    text: String,
+    page_count: usize,
+    ocr_used: bool,
+    file_hash: String,
+}
+
+async fn resolve_pdf_text(
     input: &InvoiceInput,
     config: &Config,
     llm: &LlmContext,
-) -> Result<ExtractionResult> {
-    tracing::info!("Processing: {}", input.path);
-    let start = Instant::now();
-
+) -> Result<PdfText> {
     let mut pdf_result = extract_text(&input.bytes)
         .with_context(|| format!("Failed to extract text from PDF: {}", input.path))?;
 
@@ -43,18 +47,35 @@ pub async fn extract_invoice(
         bail!("No text extracted from PDF");
     }
 
+    Ok(PdfText {
+        text: pdf_result.text,
+        page_count: pdf_result.page_count,
+        ocr_used: pdf_result.ocr_used,
+        file_hash: pdf_result.file_hash,
+    })
+}
+
+pub async fn extract_invoice(
+    input: &InvoiceInput,
+    config: &Config,
+    llm: &LlmContext,
+) -> Result<ExtractionResult> {
+    tracing::info!("Processing: {}", input.path);
+    let start = Instant::now();
+
+    let pdf = resolve_pdf_text(input, config, llm).await?;
     tracing::debug!(
         "Using {} chars from {} pages (ocr_used={})",
-        pdf_result.text.len(),
-        pdf_result.page_count,
-        pdf_result.ocr_used
+        pdf.text.len(),
+        pdf.page_count,
+        pdf.ocr_used,
     );
 
     let llm_result = llm
         .extract(
             config,
             extraction_system_prompt(&config.identity, &config.vendors),
-            extraction_user_message(&pdf_result.text, config.llm.extraction.max_pdf_text_chars),
+            extraction_user_message(&pdf.text, config.llm.extraction.max_pdf_text_chars),
         )
         .await?;
 
@@ -62,14 +83,14 @@ pub async fn extract_invoice(
         file: FileInfo {
             path: input.path.clone(),
             original_name: input.original_name.clone(),
-            hash: pdf_result.file_hash,
+            hash: pdf.file_hash,
             processed_at: Utc::now().to_rfc3339(),
         },
         invoice: llm_result.invoice,
         extraction: ExtractionMeta {
             provider: llm_result.provider,
             model: llm_result.model,
-            ocr_used: pdf_result.ocr_used,
+            ocr_used: pdf.ocr_used,
             processing_time_ms: start.elapsed().as_millis() as u64,
         },
         identity_match: None,

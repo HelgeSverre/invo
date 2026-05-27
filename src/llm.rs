@@ -286,6 +286,21 @@ fn build_mistral_client(
         .build()?)
 }
 
+enum RetryDecision {
+    Retry { delay: Duration },
+    Stop,
+}
+
+fn classify_retry(error: &anyhow::Error, attempt: u32, max_retries: u32) -> RetryDecision {
+    if attempt < max_retries && !is_permanent_error(error) {
+        RetryDecision::Retry {
+            delay: retry_delay(attempt),
+        }
+    } else {
+        RetryDecision::Stop
+    }
+}
+
 async fn complete_invoice<M>(
     model: M,
     config: &Config,
@@ -305,26 +320,27 @@ where
 
         match result {
             Ok(invoice) => return Ok(invoice),
-            Err(error) if attempt < max_retries && !is_permanent_error(&error) => {
-                let delay = retry_delay(attempt);
-                tracing::warn!(
-                    attempt = attempt + 1,
-                    max_retries,
-                    delay_ms = delay.as_millis() as u64,
-                    "LLM extraction attempt failed; sleeping {}ms before retry: {error}",
-                    delay.as_millis()
-                );
-                tokio::time::sleep(delay).await;
-            }
-            Err(error) => {
-                if is_permanent_error(&error) {
+            Err(error) => match classify_retry(&error, attempt, max_retries) {
+                RetryDecision::Retry { delay } => {
                     tracing::warn!(
                         attempt = attempt + 1,
-                        "LLM extraction hit a permanent error; not retrying: {error}"
+                        max_retries,
+                        delay_ms = delay.as_millis() as u64,
+                        "LLM extraction attempt failed; sleeping {}ms before retry: {error}",
+                        delay.as_millis()
                     );
+                    tokio::time::sleep(delay).await;
                 }
-                return Err(error);
-            }
+                RetryDecision::Stop => {
+                    if is_permanent_error(&error) {
+                        tracing::warn!(
+                            attempt = attempt + 1,
+                            "LLM extraction hit a permanent error; not retrying: {error}"
+                        );
+                    }
+                    return Err(error);
+                }
+            },
         }
     }
 
