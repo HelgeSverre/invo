@@ -43,6 +43,7 @@ pub struct LlmContext {
     provider: Provider,
     client: LlmClient,
     timeout: Duration,
+    http: reqwest::Client,
 }
 
 enum LlmClient {
@@ -71,15 +72,21 @@ impl LlmContext {
                 LlmClient::Mistral(build_mistral_client(&provider, api_key, timeout)?)
             }
         };
+        let http = build_http_client(timeout)?;
         Ok(Self {
             provider,
             client,
             timeout,
+            http,
         })
     }
 
     pub fn provider(&self) -> &Provider {
         &self.provider
+    }
+
+    pub fn http(&self) -> &reqwest::Client {
+        &self.http
     }
 
     pub async fn extract(

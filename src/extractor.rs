@@ -31,7 +31,7 @@ pub async fn extract_invoice(
             other => {
                 tracing::info!("Falling back to OCR via {}", other.label());
                 pdf_result.text = other
-                    .run(&input.bytes)
+                    .run(llm.http(), &input.bytes)
                     .await
                     .context("OCR fallback failed")?;
                 pdf_result.ocr_used = true;
@@ -103,6 +103,39 @@ const DEFAULT_OPENAI_OCR_MODEL: &str = "gpt-4o";
 const DEFAULT_OLLAMA_OCR_MODEL: &str = "llama3.2-vision";
 const DEFAULT_OLLAMA_OCR_URL: &str = "http://localhost:11434";
 
+/// Authentication shape per provider. Cheap to pass by value.
+enum Auth<'a> {
+    Bearer(&'a str),
+    AnthropicKey(&'a str),
+    None,
+}
+
+/// Shared POST + error-context machinery. Replaces 8 duplicated lines × 4 fns.
+async fn ocr_post(
+    http: &reqwest::Client,
+    url: &str,
+    auth: Auth<'_>,
+    payload: &serde_json::Value,
+    label: &str,
+) -> Result<serde_json::Value> {
+    let mut req = http.post(url).json(payload);
+    req = match auth {
+        Auth::Bearer(k) => req.bearer_auth(k),
+        Auth::AnthropicKey(k) => req
+            .header("x-api-key", k)
+            .header("anthropic-version", "2023-06-01"),
+        Auth::None => req,
+    };
+    req.send()
+        .await
+        .with_context(|| format!("{label} OCR request failed (network)"))?
+        .error_for_status()
+        .with_context(|| format!("{label} OCR returned an error status"))?
+        .json()
+        .await
+        .with_context(|| format!("{label} OCR returned malformed JSON"))
+}
+
 #[derive(Debug)]
 enum ResolvedOcr {
     Disabled,
@@ -125,18 +158,20 @@ impl ResolvedOcr {
         }
     }
 
-    async fn run(self, bytes: &[u8]) -> Result<String> {
+    async fn run(self, http: &reqwest::Client, bytes: &[u8]) -> Result<String> {
         match self {
             ResolvedOcr::Disabled => bail!("OCR is disabled (internal: caller should branch)"),
             ResolvedOcr::Mistral { model, api_key } => {
-                ocr_via_mistral(bytes, &model, &api_key).await
+                ocr_via_mistral(http, bytes, &model, &api_key).await
             }
             ResolvedOcr::Anthropic { model, api_key } => {
-                ocr_via_anthropic(bytes, &model, &api_key).await
+                ocr_via_anthropic(http, bytes, &model, &api_key).await
             }
-            ResolvedOcr::OpenAi { model, api_key } => ocr_via_openai(bytes, &model, &api_key).await,
+            ResolvedOcr::OpenAi { model, api_key } => {
+                ocr_via_openai(http, bytes, &model, &api_key).await
+            }
             ResolvedOcr::Ollama { model, base_url } => {
-                ocr_via_ollama(bytes, &model, &base_url).await
+                ocr_via_ollama(http, bytes, &model, &base_url).await
             }
         }
     }
@@ -241,36 +276,34 @@ fn read_env(name: &str) -> Result<String> {
 
 // --- Mistral OCR -----------------------------------------------------------
 
-async fn ocr_via_mistral(bytes: &[u8], model: &str, api_key: &str) -> Result<String> {
+async fn ocr_via_mistral(
+    http: &reqwest::Client,
+    bytes: &[u8],
+    model: &str,
+    api_key: &str,
+) -> Result<String> {
     let data_uri = format!("data:application/pdf;base64,{}", B64.encode(bytes));
     let payload = serde_json::json!({
         "model": model,
         "document": { "type": "document_url", "document_url": data_uri },
     });
-
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post("https://api.mistral.ai/v1/ocr")
-        .bearer_auth(api_key)
-        .json(&payload)
-        .send()
-        .await
-        .context("Mistral OCR request failed (network)")?
-        .error_for_status()
-        .context("Mistral OCR returned an error status")?
-        .json()
-        .await
-        .context("Mistral OCR returned malformed JSON")?;
+    let resp = ocr_post(
+        http,
+        "https://api.mistral.ai/v1/ocr",
+        Auth::Bearer(api_key),
+        &payload,
+        "Mistral",
+    )
+    .await?;
 
     let pages = resp["pages"]
         .as_array()
         .context("Mistral OCR response missing 'pages' array")?;
-
     let text = pages
         .iter()
         .filter_map(|p| p["markdown"].as_str())
         .collect::<Vec<_>>()
         .join("\n\n");
-
     if text.is_empty() {
         bail!("Mistral OCR returned no text (all pages had empty markdown)");
     }
@@ -279,7 +312,12 @@ async fn ocr_via_mistral(bytes: &[u8], model: &str, api_key: &str) -> Result<Str
 
 // --- Anthropic OCR (native PDF document content block) --------------------
 
-async fn ocr_via_anthropic(bytes: &[u8], model: &str, api_key: &str) -> Result<String> {
+async fn ocr_via_anthropic(
+    http: &reqwest::Client,
+    bytes: &[u8],
+    model: &str,
+    api_key: &str,
+) -> Result<String> {
     let payload = serde_json::json!({
         "model": model,
         "max_tokens": 8192,
@@ -298,32 +336,24 @@ async fn ocr_via_anthropic(bytes: &[u8], model: &str, api_key: &str) -> Result<S
             ]
         }]
     });
-
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post("https://api.anthropic.com/v1/messages")
-        .header("x-api-key", api_key)
-        .header("anthropic-version", "2023-06-01")
-        .json(&payload)
-        .send()
-        .await
-        .context("Anthropic OCR request failed (network)")?
-        .error_for_status()
-        .context("Anthropic OCR returned an error status")?
-        .json()
-        .await
-        .context("Anthropic OCR returned malformed JSON")?;
+    let resp = ocr_post(
+        http,
+        "https://api.anthropic.com/v1/messages",
+        Auth::AnthropicKey(api_key),
+        &payload,
+        "Anthropic",
+    )
+    .await?;
 
     let content = resp["content"]
         .as_array()
         .context("Anthropic OCR response missing 'content' array")?;
-
     let text = content
         .iter()
         .filter(|c| c["type"].as_str() == Some("text"))
         .filter_map(|c| c["text"].as_str())
         .collect::<Vec<_>>()
         .join("\n");
-
     if text.is_empty() {
         bail!("Anthropic OCR returned no text content");
     }
@@ -336,7 +366,12 @@ async fn ocr_via_anthropic(bytes: &[u8], model: &str, api_key: &str) -> Result<S
 // extraction). Responses API natively accepts base64 PDFs via input_file
 // content, no Files-API roundtrip required.
 
-async fn ocr_via_openai(bytes: &[u8], model: &str, api_key: &str) -> Result<String> {
+async fn ocr_via_openai(
+    http: &reqwest::Client,
+    bytes: &[u8],
+    model: &str,
+    api_key: &str,
+) -> Result<String> {
     let payload = serde_json::json!({
         "model": model,
         "input": [{
@@ -351,19 +386,14 @@ async fn ocr_via_openai(bytes: &[u8], model: &str, api_key: &str) -> Result<Stri
             ]
         }]
     });
-
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post("https://api.openai.com/v1/responses")
-        .bearer_auth(api_key)
-        .json(&payload)
-        .send()
-        .await
-        .context("OpenAI OCR request failed (network)")?
-        .error_for_status()
-        .context("OpenAI OCR returned an error status")?
-        .json()
-        .await
-        .context("OpenAI OCR returned malformed JSON")?;
+    let resp = ocr_post(
+        http,
+        "https://api.openai.com/v1/responses",
+        Auth::Bearer(api_key),
+        &payload,
+        "OpenAI",
+    )
+    .await?;
 
     // Prefer top-level convenience field when present; fall back to walking
     // the structured `output[].content[].text` shape so we work across
@@ -384,7 +414,6 @@ async fn ocr_via_openai(bytes: &[u8], model: &str, api_key: &str) -> Result<Stri
             .collect::<Vec<_>>()
             .join("\n")
     };
-
     if text.is_empty() {
         bail!("OpenAI OCR returned no text content");
     }
@@ -400,7 +429,12 @@ async fn ocr_via_openai(bytes: &[u8], model: &str, api_key: &str) -> Result<Stri
 // rebuild hint at runtime.
 
 #[cfg(feature = "ollama-ocr")]
-async fn ocr_via_ollama(bytes: &[u8], model: &str, base_url: &str) -> Result<String> {
+async fn ocr_via_ollama(
+    http: &reqwest::Client,
+    bytes: &[u8],
+    model: &str,
+    base_url: &str,
+) -> Result<String> {
     let bytes = bytes.to_vec();
     let images = tokio::task::spawn_blocking(move || -> Result<Vec<String>> {
         use image::codecs::png::PngEncoder;
@@ -456,22 +490,11 @@ async fn ocr_via_ollama(bytes: &[u8], model: &str, base_url: &str) -> Result<Str
     });
 
     let url = format!("{}/api/chat", base_url.trim_end_matches('/'));
-    let resp: serde_json::Value = reqwest::Client::new()
-        .post(&url)
-        .json(&payload)
-        .send()
-        .await
-        .context("Ollama OCR request failed (network)")?
-        .error_for_status()
-        .context("Ollama OCR returned an error status")?
-        .json()
-        .await
-        .context("Ollama OCR returned malformed JSON")?;
+    let resp = ocr_post(http, &url, Auth::None, &payload, "Ollama").await?;
 
     let text = resp["message"]["content"]
         .as_str()
         .context("Ollama OCR response missing message.content")?;
-
     if text.is_empty() {
         bail!("Ollama OCR returned empty message content");
     }
@@ -479,7 +502,12 @@ async fn ocr_via_ollama(bytes: &[u8], model: &str, base_url: &str) -> Result<Str
 }
 
 #[cfg(not(feature = "ollama-ocr"))]
-async fn ocr_via_ollama(_bytes: &[u8], _model: &str, _base_url: &str) -> Result<String> {
+async fn ocr_via_ollama(
+    _http: &reqwest::Client,
+    _bytes: &[u8],
+    _model: &str,
+    _base_url: &str,
+) -> Result<String> {
     bail!(
         "Ollama OCR requires the `ollama-ocr` Cargo feature (PDF rasterization via PDFium). Rebuild with `cargo install --features ollama-ocr` or use mode = mistral | anthropic | llm (with name: openai) instead."
     );
@@ -705,7 +733,8 @@ mod tests {
     #[cfg(not(feature = "ollama-ocr"))]
     #[tokio::test]
     async fn ollama_ocr_without_feature_returns_actionable_error() {
-        let err = ocr_via_ollama(b"%PDF", "llama3.2-vision", "http://localhost:11434")
+        let http = test_http_client();
+        let err = ocr_via_ollama(&http, b"%PDF", "llama3.2-vision", "http://localhost:11434")
             .await
             .expect_err("should fail without feature");
         let msg = err.to_string();
@@ -740,6 +769,13 @@ mod tests {
         );
     }
 
+    fn test_http_client() -> reqwest::Client {
+        reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(30))
+            .build()
+            .expect("test http client")
+    }
+
     // Live OCR smoke tests against real provider APIs. Each test is gated on
     // its provider's API key env var. Run any single one with:
     //     cargo test --bin invo -- --ignored <test_name>
@@ -749,9 +785,14 @@ mod tests {
     async fn mistral_ocr_extracts_text_from_sample_pdf() {
         let api_key =
             std::env::var("MISTRAL_API_KEY").expect("set MISTRAL_API_KEY to run this live test");
-        let text = ocr_via_mistral(&sample_pdf_bytes(), DEFAULT_MISTRAL_OCR_MODEL, &api_key)
-            .await
-            .expect("Mistral OCR should succeed for a valid PDF");
+        let text = ocr_via_mistral(
+            &test_http_client(),
+            &sample_pdf_bytes(),
+            DEFAULT_MISTRAL_OCR_MODEL,
+            &api_key,
+        )
+        .await
+        .expect("Mistral OCR should succeed for a valid PDF");
         assert_meaningful_text(&text, "Mistral OCR");
     }
 
@@ -760,9 +801,14 @@ mod tests {
     async fn anthropic_ocr_extracts_text_from_sample_pdf() {
         let api_key = std::env::var("ANTHROPIC_API_KEY")
             .expect("set ANTHROPIC_API_KEY to run this live test");
-        let text = ocr_via_anthropic(&sample_pdf_bytes(), DEFAULT_ANTHROPIC_OCR_MODEL, &api_key)
-            .await
-            .expect("Anthropic OCR should succeed for a valid PDF");
+        let text = ocr_via_anthropic(
+            &test_http_client(),
+            &sample_pdf_bytes(),
+            DEFAULT_ANTHROPIC_OCR_MODEL,
+            &api_key,
+        )
+        .await
+        .expect("Anthropic OCR should succeed for a valid PDF");
         assert_meaningful_text(&text, "Anthropic OCR");
     }
 
@@ -771,9 +817,14 @@ mod tests {
     async fn openai_ocr_extracts_text_from_sample_pdf() {
         let api_key =
             std::env::var("OPENAI_API_KEY").expect("set OPENAI_API_KEY to run this live test");
-        let text = ocr_via_openai(&sample_pdf_bytes(), DEFAULT_OPENAI_OCR_MODEL, &api_key)
-            .await
-            .expect("OpenAI OCR should succeed for a valid PDF");
+        let text = ocr_via_openai(
+            &test_http_client(),
+            &sample_pdf_bytes(),
+            DEFAULT_OPENAI_OCR_MODEL,
+            &api_key,
+        )
+        .await
+        .expect("OpenAI OCR should succeed for a valid PDF");
         assert_meaningful_text(&text, "OpenAI OCR");
     }
 
@@ -785,6 +836,7 @@ mod tests {
     #[tokio::test]
     async fn ollama_ocr_extracts_text_from_sample_pdf() {
         let text = ocr_via_ollama(
+            &test_http_client(),
             &sample_pdf_bytes(),
             DEFAULT_OLLAMA_OCR_MODEL,
             DEFAULT_OLLAMA_OCR_URL,
