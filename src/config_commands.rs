@@ -84,6 +84,8 @@ fn handle_config_show(options: &ConfigCommandOptions, effective: bool) -> Result
 }
 
 fn handle_config_validate(options: &ConfigCommandOptions, strict: bool) -> Result<()> {
+    // load_config_status `?`'s out on any parse error, so reaching this line
+    // implies parsing succeeded (or the file is absent and defaults parsed).
     let loaded = load_config_status(options.config.as_ref())?;
     let output = ConfigValidationOutput {
         path: loaded.path.display().to_string(),
@@ -91,7 +93,7 @@ fn handle_config_validate(options: &ConfigCommandOptions, strict: bool) -> Resul
         status: if loaded.exists { "valid" } else { "missing" },
         valid: true,
         effective_defaults: !loaded.exists,
-        strict: true,
+        strict,
     };
     tracing::debug!("{:#?}", loaded.config);
 
@@ -101,16 +103,16 @@ fn handle_config_validate(options: &ConfigCommandOptions, strict: bool) -> Resul
         println!("Config file: {}", loaded.path.display());
         println!("Status: valid");
         println!("Validated: {}", loaded.path.display());
-        println!("Strict validation: enabled");
+        if strict {
+            println!("Strict validation: enabled");
+        }
     } else {
         println!("Config file: {}", loaded.path.display());
         println!("Status: missing; using built-in defaults");
         println!("Effective defaults are valid.");
-        println!("Strict validation: enabled");
-    }
-
-    if strict && !options.json {
-        tracing::debug!("--strict was provided; strict validation is already the default");
+        if strict {
+            println!("Strict validation: enabled");
+        }
     }
 
     Ok(())

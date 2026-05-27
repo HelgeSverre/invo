@@ -146,6 +146,22 @@ fn config_validate_json_is_machine_readable() {
 
     assert_eq!(parsed["status"], "valid");
     assert_eq!(parsed["exists"], true);
+    assert_eq!(parsed["valid"], true);
+    // Without --strict the field reports false instead of lying about the flag.
+    assert_eq!(parsed["strict"], false);
+}
+
+#[test]
+fn config_validate_json_strict_flag_is_reflected_in_output() {
+    let output = invo()
+        .args(["config", "validate", "-c", "config.yaml", "--strict", "--json"])
+        .output()
+        .expect("invo should run");
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let parsed: Value = serde_json::from_str(&stdout).expect("validation output should be JSON");
+
     assert_eq!(parsed["strict"], true);
 }
 
