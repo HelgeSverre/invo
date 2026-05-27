@@ -189,6 +189,15 @@ fn init_respects_explicit_config_path_and_requires_force_to_overwrite() {
     assert!(output.status.success());
     assert!(config_path.exists());
 
+    // init success message must land on stderr so stdout stays data-only.
+    let stdout = String::from_utf8(output.stdout).expect("stdout should be utf-8");
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(stdout.is_empty(), "stdout should be empty, got: {stdout}");
+    assert!(
+        stderr.contains("Created config file at"),
+        "stderr should report creation, got: {stderr}"
+    );
+
     let second = invo()
         .args(["init", "-c", config_path.to_str().unwrap()])
         .output()

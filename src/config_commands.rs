@@ -31,7 +31,7 @@ pub fn handle_init(config_path_override: Option<&PathBuf>, force: bool) -> Resul
     let config_template = include_str!("../config.yaml");
     std::fs::write(&config_path, config_template)?;
 
-    println!("Created config file at {}", config_path.display());
+    eprintln!("Created config file at {}", config_path.display());
     Ok(())
 }
 
