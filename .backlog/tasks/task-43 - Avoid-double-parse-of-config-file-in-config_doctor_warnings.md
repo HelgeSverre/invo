@@ -1,8 +1,9 @@
 ---
 id: TASK-43
 title: Avoid double-parse of config file in config_doctor_warnings
-status: To Do
-assignee: []
+status: In Progress
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:08'
 updated_date: '2026-05-27 00:49'
 labels:
