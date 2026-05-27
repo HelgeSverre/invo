@@ -252,3 +252,139 @@ mod option_string_or_f64 {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Output wrapper shape (TASK-27).
+    //!
+    //! These tests pin the JSON envelope that wraps the LLM-extracted invoice
+    //! payload. They do NOT call any LLM — we construct an `ExtractionResult`
+    //! directly with a stubbed `Invoice`. The shape we pin here is what
+    //! downstream consumers (NDJSON streams, CSV converters, agent context)
+    //! depend on.
+    use super::*;
+    use chrono::NaiveDate;
+    use serde_json::Value;
+
+    fn sample_extraction_result() -> ExtractionResult {
+        ExtractionResult {
+            file: FileInfo {
+                path: "tests/fixtures/pdfs/single_page.pdf".to_string(),
+                original_name: "single_page.pdf".to_string(),
+                hash: "53975127489838ab".to_string(),
+                processed_at: "2026-05-27T00:00:00+00:00".to_string(),
+            },
+            invoice: Invoice {
+                vendor: "Acme Widgets Inc".to_string(),
+                invoice_date: NaiveDate::from_ymd_opt(2026, 5, 27).unwrap(),
+                total_amount: 123.45,
+                currency: "USD".to_string(),
+                invoice_number: Some("INV-001".to_string()),
+                due_date: None,
+                subtotal: None,
+                tax_amount: None,
+                tax_rate: None,
+                discount_amount: None,
+                vendor_website: None,
+                vendor_email: None,
+                vendor_address: None,
+                payment_method: None,
+                card_last_four: None,
+                items: Vec::new(),
+                category: None,
+                description: None,
+                buyer_name: None,
+                confidence: None,
+            },
+            extraction: ExtractionMeta {
+                provider: "stub".to_string(),
+                model: "stub-model".to_string(),
+                ocr_used: false,
+                processing_time_ms: 42,
+            },
+            identity_match: None,
+        }
+    }
+
+    #[test]
+    fn extraction_result_has_top_level_envelope_keys() {
+        let json = serde_json::to_value(sample_extraction_result()).expect("serializes");
+        let obj = json.as_object().expect("top level is object");
+
+        // The envelope contract: these four keys exist, identity_match is
+        // optional but present as null when absent.
+        let mut keys: Vec<&str> = obj.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["extraction", "file", "identity_match", "invoice"]
+        );
+    }
+
+    #[test]
+    fn extraction_result_file_block_has_documented_fields() {
+        let json = serde_json::to_value(sample_extraction_result()).expect("serializes");
+        let file = json
+            .get("file")
+            .expect("file block")
+            .as_object()
+            .expect("object");
+
+        let mut keys: Vec<&str> = file.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(keys, vec!["hash", "original_name", "path", "processed_at"]);
+
+        assert_eq!(file["hash"], Value::from("53975127489838ab"));
+        assert_eq!(file["original_name"], Value::from("single_page.pdf"));
+    }
+
+    #[test]
+    fn extraction_result_meta_block_has_documented_fields() {
+        let json = serde_json::to_value(sample_extraction_result()).expect("serializes");
+        let meta = json
+            .get("extraction")
+            .expect("extraction block")
+            .as_object()
+            .expect("object");
+
+        let mut keys: Vec<&str> = meta.keys().map(String::as_str).collect();
+        keys.sort();
+        assert_eq!(
+            keys,
+            vec!["model", "ocr_used", "processing_time_ms", "provider"]
+        );
+        assert_eq!(meta["ocr_used"], Value::from(false));
+        assert_eq!(meta["processing_time_ms"], Value::from(42u64));
+    }
+
+    #[test]
+    fn extraction_result_invoice_date_is_yyyy_mm_dd_string() {
+        let json = serde_json::to_value(sample_extraction_result()).expect("serializes");
+        let invoice = json
+            .get("invoice")
+            .expect("invoice block")
+            .as_object()
+            .expect("object");
+
+        // Date contract: serialized as a string in YYYY-MM-DD form, never
+        // as an array, object, or epoch number.
+        assert_eq!(invoice["invoice_date"], Value::from("2026-05-27"));
+        assert_eq!(invoice["total_amount"], Value::from(123.45));
+        assert_eq!(invoice["currency"], Value::from("USD"));
+    }
+
+    #[test]
+    fn extraction_result_roundtrips_through_json() {
+        // A consumer reading our JSON back into `ExtractionResult` (e.g.
+        // `invo` itself when chaining a pipeline) must get identical data.
+        let original = sample_extraction_result();
+        let serialized = serde_json::to_string(&original).expect("serializes");
+        let parsed: ExtractionResult = serde_json::from_str(&serialized).expect("roundtrips");
+
+        assert_eq!(parsed.file.hash, original.file.hash);
+        assert_eq!(parsed.invoice.vendor, original.invoice.vendor);
+        assert_eq!(parsed.invoice.invoice_date, original.invoice.invoice_date);
+        assert_eq!(parsed.invoice.total_amount, original.invoice.total_amount);
+        assert_eq!(parsed.extraction.provider, original.extraction.provider);
+    }
+}

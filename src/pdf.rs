@@ -91,4 +91,111 @@ mod tests {
         assert_eq!(short_sha256(b"abc"), short_sha256(b"abc"));
         assert_ne!(short_sha256(b"abc"), short_sha256(b"abd"));
     }
+
+    // --- Sample-PDF regression checks (TASK-27) ---------------------------
+    //
+    // Fixture PDFs live in `tests/fixtures/pdfs/`. They are tiny, hermetic,
+    // and exist solely to pin PDF extraction behavior. Re-generating them
+    // changes their bytes (and therefore their hashes) — only do that with
+    // intent, and update the expected hashes below in the same commit.
+
+    fn fixture_path(name: &str) -> std::path::PathBuf {
+        std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/pdfs")
+            .join(name)
+    }
+
+    fn read_fixture(name: &str) -> Vec<u8> {
+        std::fs::read(fixture_path(name))
+            .unwrap_or_else(|e| panic!("fixture {name} should be readable: {e}"))
+    }
+
+    #[test]
+    fn fixture_single_page_has_expected_hash_text_and_page_count() {
+        let bytes = read_fixture("single_page.pdf");
+
+        // Hash is computed over the on-disk bytes. If this changes the
+        // fixture was regenerated; treat that as an explicit decision.
+        assert_eq!(
+            short_sha256(&bytes),
+            "53975127489838ab",
+            "single_page.pdf hash drifted — was the fixture regenerated?"
+        );
+
+        let result = extract_text(&bytes).expect("single_page.pdf should extract");
+        assert_eq!(result.file_hash, "53975127489838ab");
+        assert!(
+            result.text.contains("Invoice INV-001"),
+            "expected invoice header in text, got: {:?}",
+            result.text
+        );
+        assert!(
+            result.text.contains("Acme Widgets Inc"),
+            "expected vendor in text, got: {:?}",
+            result.text
+        );
+        assert!(
+            result.text.contains("123.45 USD"),
+            "expected total in text, got: {:?}",
+            result.text
+        );
+
+        // printpdf doesn't emit literal "/Type /Page" tokens, so count_pages
+        // falls back to .max(1). This is a known limitation (see TASK-51);
+        // we pin it here so the fallback can't silently disappear.
+        assert_eq!(result.page_count, 1);
+        assert!(!result.ocr_used);
+    }
+
+    #[test]
+    fn fixture_multi_page_extracts_text_from_all_pages() {
+        let bytes = read_fixture("multi_page.pdf");
+
+        assert_eq!(
+            short_sha256(&bytes),
+            "008d08658ad6787d",
+            "multi_page.pdf hash drifted — was the fixture regenerated?"
+        );
+
+        let result = extract_text(&bytes).expect("multi_page.pdf should extract");
+        assert_eq!(result.file_hash, "008d08658ad6787d");
+
+        // Text from both pages is concatenated. We assert per-page substrings
+        // rather than a full snapshot so whitespace/newline tweaks in
+        // pdf-extract releases don't churn this test.
+        assert!(result.text.contains("Receipt R-2026-05-27"));
+        assert!(result.text.contains("Page 2 of 2"));
+        assert!(result.text.contains("Thank you"));
+    }
+
+    #[test]
+    fn fixture_three_page_hash_is_stable_across_repeated_reads() {
+        let bytes = read_fixture("three_page.pdf");
+
+        assert_eq!(
+            short_sha256(&bytes),
+            "017a8980b92e6952",
+            "three_page.pdf hash drifted — was the fixture regenerated?"
+        );
+
+        // Two extractions of the same fixture must agree on hash and text.
+        let a = extract_text(&bytes).expect("three_page.pdf should extract");
+        let b = extract_text(&bytes).expect("three_page.pdf should extract twice");
+        assert_eq!(a.file_hash, b.file_hash);
+        assert_eq!(a.text, b.text);
+        assert_eq!(a.page_count, b.page_count);
+
+        assert!(a.text.contains("Cover Page"));
+        assert!(a.text.contains("Widget A 10.00"));
+        assert!(a.text.contains("Grand Total 30.00 NOK"));
+    }
+
+    #[test]
+    fn count_pages_returns_at_least_one_for_any_input() {
+        // Even garbage bytes hit the .max(1) floor. Pinned because the
+        // extractor's "did we get any text?" branch relies on page_count
+        // being >= 1.
+        assert_eq!(count_pages(b""), 1);
+        assert_eq!(count_pages(b"not a pdf"), 1);
+    }
 }

@@ -1,10 +1,10 @@
 ---
 id: TASK-27
 title: Add sample PDF regression checks
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-25 15:31'
+updated_date: '2026-05-27 00:00'
 labels:
   - tests
   - pdf
@@ -25,8 +25,8 @@ Use the existing sample PDFs to protect PDF text extraction, metadata, hash/page
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 At least a few checked-in sample PDFs are used in automated tests.
-- [ ] #2 Tests do not require a live LLM unless explicitly opt-in.
-- [ ] #3 PDF text extraction, short hash, and page-count behavior are covered.
-- [ ] #4 Expected output wrapper shape remains stable.
+- [x] #1 At least a few checked-in sample PDFs are used in automated tests.
+- [x] #2 Tests do not require a live LLM unless explicitly opt-in.
+- [x] #3 PDF text extraction, short hash, and page-count behavior are covered.
+- [x] #4 Expected output wrapper shape remains stable.
 <!-- AC:END -->
