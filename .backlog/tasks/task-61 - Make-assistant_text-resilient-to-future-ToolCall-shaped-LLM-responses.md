@@ -1,9 +1,10 @@
 ---
 id: TASK-61
 title: Make assistant_text resilient to future ToolCall-shaped LLM responses
-status: To Do
+status: Done
 assignee: []
 created_date: '2026-05-27 00:10'
+updated_date: '2026-05-27'
 labels:
   - code-review
   - reliability
@@ -23,7 +24,7 @@ src/llm.rs:176-192 assistant_text filter_maps AssistantContent::Text only; ToolC
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 When no Text content is present in AssistantContent, assistant_text falls back to scanning ToolCall arguments (e.g. the first ToolCall whose name matches the schema function)
+- [x] #1 When no Text content is present in AssistantContent, assistant_text falls back to scanning ToolCall arguments (e.g. the first ToolCall whose name matches the schema function)
 - [ ] #2 Alternatively, an explicit assertion is added with a clear error message tying it to the rig-core version
-- [ ] #3 Behavior on today's Text-only responses is unchanged
+- [x] #3 Behavior on today's Text-only responses is unchanged
 <!-- AC:END -->
