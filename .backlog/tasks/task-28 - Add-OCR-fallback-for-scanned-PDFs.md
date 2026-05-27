@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@pi'
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-27 01:51'
+updated_date: '2026-05-27 03:59'
 labels:
   - feature
   - pdf
@@ -34,13 +34,15 @@ Recover text from image-only / scanned PDFs by routing them through a vision/doc
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Image-only or scanned PDFs can produce extracted text through OCR when OCR is enabled.
-- [ ] #2 The output extraction.ocr_used field is true when OCR is used.
-- [ ] #3 Users get actionable errors when OCR is unavailable or disabled.
-- [ ] #4 README documents OCR requirements and limitations.
-- [ ] #5 Tests cover OCR-disabled and OCR-unavailable behavior without requiring system OCR in default test runs.
-- [ ] #6 check 1,2,3,4,5
+- [x] #1 Image-only or scanned PDFs can produce extracted text through OCR when OCR is enabled.
+- [x] #2 The output extraction.ocr_used field is true when OCR is used.
+- [x] #3 Users get actionable errors when OCR is unavailable or disabled.
+- [x] #4 README documents OCR requirements and limitations.
+- [x] #5 Tests cover OCR-disabled and OCR-unavailable behavior without requiring system OCR in default test runs.
+- [x] #6 check 1,2,3,4,5
 <!-- AC:END -->
+
+
 
 ## Implementation Plan
 

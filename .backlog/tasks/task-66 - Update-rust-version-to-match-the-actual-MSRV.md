@@ -4,7 +4,7 @@ title: Update rust-version to match the actual MSRV
 status: Done
 assignee: []
 created_date: '2026-05-27 00:11'
-updated_date: '2026-05-27 00:57'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - docs
@@ -25,10 +25,12 @@ Cargo.toml:8 declares rust-version = "1.70", but rig-core 0.37 requires edition 
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Cargo.toml rust-version reflects the actual MSRV (verify via cargo msrv or local toolchain test)
-- [ ] #2 README 'Requires Rust 1.70+' text is updated
-- [ ] #3 CI uses the same MSRV in the toolchain step
+- [x] #1 Cargo.toml rust-version reflects the actual MSRV (verify via cargo msrv or local toolchain test)
+- [x] #2 README 'Requires Rust 1.70+' text is updated
+- [x] #3 CI uses the same MSRV in the toolchain step
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

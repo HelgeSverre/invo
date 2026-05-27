@@ -4,7 +4,7 @@ title: Share the rig-core HTTP client across batch items
 status: Done
 assignee: []
 created_date: '2026-05-27 00:11'
-updated_date: '2026-05-27 01:06'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - performance
@@ -26,10 +26,12 @@ src/llm.rs:49-71 builds a new provider client (build_ollama_client, openai::Clie
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Provider client is built once per process and reused across batch items via an extractor context struct
+- [x] #1 Provider client is built once per process and reused across batch items via an extractor context struct
 - [ ] #2 Connection-pool reuse is observable in logs/traces or asserted in a focused test
-- [ ] #3 Refactor lands in a shape compatible with TASK-29 (parallel batching)
+- [x] #3 Refactor lands in a shape compatible with TASK-29 (parallel batching)
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

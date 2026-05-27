@@ -4,7 +4,7 @@ title: Make short_sha256 robust to changes in hash representation
 status: Done
 assignee: []
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 00:56'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - reliability
@@ -25,10 +25,12 @@ src/pdf.rs:50-55 does hash[..16].to_string() on a hex-formatted hash. Safe today
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Slice operates by character count (chars().take(16)) or asserts the hex invariant explicitly
-- [ ] #2 Bit width is documented and revisited when TASK-32 lands
-- [ ] #3 Test demonstrates behavior is unchanged for the current hex output
+- [x] #1 Slice operates by character count (chars().take(16)) or asserts the hex invariant explicitly
+- [x] #2 Bit width is documented and revisited when TASK-32 lands
+- [x] #3 Test demonstrates behavior is unchanged for the current hex output
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

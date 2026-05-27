@@ -5,7 +5,7 @@ status: Done
 assignee:
   - '@claude'
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 01:52'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - docs
@@ -27,9 +27,11 @@ The worktree had uncommitted Implementation Plan sections on To Do tasks, which 
 <!-- AC:BEGIN -->
 - [x] #1 Each of the 8 listed tasks either moves to 'In Progress' with an assignee before its plan stays, or its plan is removed until the task is started
 - [x] #2 Resolution does not edit task files directly — uses backlog CLI per AGENTS.md golden rule
-- [ ] #3 The fix is committed (uncommitted state is the violation today)
-- [ ] #4 check 3
+- [x] #3 The fix is committed (uncommitted state is the violation today)
+- [x] #4 check 3
 <!-- AC:END -->
+
+
 
 ## Implementation Plan
 

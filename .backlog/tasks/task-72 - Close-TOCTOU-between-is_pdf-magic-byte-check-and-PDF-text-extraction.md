@@ -4,7 +4,7 @@ title: Close TOCTOU between is_pdf magic-byte check and PDF text extraction
 status: Done
 assignee: []
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 00:59'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - security
@@ -28,10 +28,12 @@ src/input.rs validates candidate file paths by opening and reading the PDF magic
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Path validation and byte materialization operate on the same opened file handle or on one already-read byte buffer.
+- [x] #1 Path validation and byte materialization operate on the same opened file handle or on one already-read byte buffer.
 - [ ] #2 If the race is accepted, the trust boundary and residual risk are documented explicitly.
-- [ ] #3 Regression test pins the chosen behavior.
+- [x] #3 Regression test pins the chosen behavior.
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

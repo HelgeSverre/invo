@@ -4,7 +4,7 @@ title: Isolate verbose tracing test from ambient RUST_LOG
 status: Done
 assignee: []
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 00:55'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - test
@@ -23,9 +23,11 @@ tests/cli_output.rs verbose_config_validation_keeps_tracing_on_stderr expects -v
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Test invocation calls .env_remove("RUST_LOG") (or sets it explicitly to the expected value)
-- [ ] #2 Test passes regardless of ambient RUST_LOG
+- [x] #1 Test invocation calls .env_remove("RUST_LOG") (or sets it explicitly to the expected value)
+- [x] #2 Test passes regardless of ambient RUST_LOG
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

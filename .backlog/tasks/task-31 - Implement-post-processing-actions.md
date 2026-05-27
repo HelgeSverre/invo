@@ -4,7 +4,7 @@ title: Implement post-processing actions
 status: Done
 assignee: []
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-27 01:10'
+updated_date: '2026-05-27 04:00'
 labels:
   - feature
   - workflow
@@ -29,12 +29,14 @@ Config already models copy, move, export, hook, and notify actions, but they are
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Configured copy and move actions run after successful extraction.
-- [ ] #2 Configured export actions write the selected output format to the configured destination.
-- [ ] #3 Hook actions execute with documented arguments/environment and honor on_error.
-- [ ] #4 Notify actions are either implemented or removed from accepted config.
-- [ ] #5 config doctor, README, and agent-context no longer report implemented actions as parsed-only.
+- [x] #1 Configured copy and move actions run after successful extraction.
+- [x] #2 Configured export actions write the selected output format to the configured destination.
+- [x] #3 Hook actions execute with documented arguments/environment and honor on_error.
+- [x] #4 Notify actions are either implemented or removed from accepted config.
+- [x] #5 config doctor, README, and agent-context no longer report implemented actions as parsed-only.
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

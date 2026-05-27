@@ -4,7 +4,7 @@ title: Clarify --json vs --json-array shape in agent-context output
 status: Done
 assignee: []
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 00:56'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - docs
@@ -25,10 +25,12 @@ src/agent_context.rs advertises --json and --json-array as batch options without
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 agent-context labels --json output as 'NDJSON on batch, single object on single file'
-- [ ] #2 agent-context labels --json-array as 'always a JSON array'
-- [ ] #3 agent-context examples show both invocations with the resulting shape
+- [x] #1 agent-context labels --json output as 'NDJSON on batch, single object on single file'
+- [x] #2 agent-context labels --json-array as 'always a JSON array'
+- [x] #3 agent-context examples show both invocations with the resulting shape
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

@@ -4,7 +4,7 @@ title: Stream NDJSON batch output as records complete
 status: Done
 assignee: []
 created_date: '2026-05-27 00:12'
-updated_date: '2026-05-27 01:01'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - performance
@@ -24,10 +24,12 @@ src/main.rs accumulates every ExtractionResult into a Vec before calling render_
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 NDJSON path prints each result as it completes; no Vec accumulation
-- [ ] #2 --json-array (and any explicit array shape) preserves today's accumulate-then-print behavior
-- [ ] #3 Tests assert ordering and per-line valid JSON
+- [x] #1 NDJSON path prints each result as it completes; no Vec accumulation
+- [x] #2 --json-array (and any explicit array shape) preserves today's accumulate-then-print behavior
+- [x] #3 Tests assert ordering and per-line valid JSON
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 

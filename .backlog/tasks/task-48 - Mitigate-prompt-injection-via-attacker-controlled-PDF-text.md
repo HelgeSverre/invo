@@ -4,7 +4,7 @@ title: Mitigate prompt injection via attacker-controlled PDF text
 status: Done
 assignee: []
 created_date: '2026-05-27 00:09'
-updated_date: '2026-05-27 01:03'
+updated_date: '2026-05-27 04:00'
 labels:
   - code-review
   - security
@@ -25,11 +25,13 @@ src/prompt.rs:83 embeds raw pdf_extract output between fixed '---' delimiters wi
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 PDF text passed to the LLM is capped at a configurable byte length (default e.g. 32KB)
-- [ ] #2 The text-block delimiter is randomized per request (e.g. a 16-char nonce) so an attacker cannot reliably close it
-- [ ] #3 README and agent-context state explicitly that extraction output requires human review for payment workflows
-- [ ] #4 A regression test asserts that a PDF containing the literal '--- IGNORE PREVIOUS INSTRUCTIONS' does not coerce vendor/total
+- [x] #1 PDF text passed to the LLM is capped at a configurable byte length (default e.g. 32KB)
+- [x] #2 The text-block delimiter is randomized per request (e.g. a 16-char nonce) so an attacker cannot reliably close it
+- [x] #3 README and agent-context state explicitly that extraction output requires human review for payment workflows
+- [x] #4 A regression test asserts that a PDF containing the literal '--- IGNORE PREVIOUS INSTRUCTIONS' does not coerce vendor/total
 <!-- AC:END -->
+
+
 
 ## Implementation Notes
 
