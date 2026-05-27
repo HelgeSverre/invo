@@ -113,7 +113,11 @@ invo emits JSON by default (`--format json`), with a stable top-level shape.
 | Subcommand | Purpose |
 | ---------- | ------- |
 | `invo init` | Write a starter config to `~/.config/invo/config.yaml` |
-| `invo config --validate` | Parse the config and report whether it is valid |
+| `invo config validate` | Parse the config and report whether it is valid |
+| `invo config show` | Print the effective merged config |
+| `invo config path` | Print the resolved config file path |
+| `invo config doctor` | Diagnose common config issues |
+| `invo config schema` | Print the JSON schema for the config |
 
 ```bash
 # Glob over a directory of receipts
