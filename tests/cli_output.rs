@@ -21,6 +21,7 @@ fn temp_path(name: &str) -> PathBuf {
 fn verbose_config_validation_keeps_tracing_on_stderr() {
     let output = invo()
         .args(["-v", "-c", "config.yaml", "config", "validate"])
+        .env_remove("RUST_LOG")
         .output()
         .expect("invo should run");
 

@@ -79,7 +79,7 @@ echo "Completions installed! Restart your shell or run 'exec $SHELL'"
 
 After installation, restart your shell or run `exec zsh`/`exec bash` to load the completions.
 
-Requires Rust 1.70+ and, for the default provider, a running [Ollama](https://ollama.com) instance. Provider calls are implemented through [`rig-core`](https://crates.io/crates/rig-core).
+Requires Rust 1.85+ (rig-core 0.37 uses edition 2024) and, for the default provider, a running [Ollama](https://ollama.com) instance. Provider calls are implemented through [`rig-core`](https://crates.io/crates/rig-core).
 
 ## Quick start
 
@@ -274,7 +274,10 @@ See [`config.yaml`](./config.yaml) in the repo root for the active starter confi
 | `llm.extraction.temperature`, `max_tokens`, `retry_attempts` | Active | Passed into Rig completion requests and retry handling |
 | `vendors[].name`, `patterns`, `currency`, `category`, `hints` | Active | Added to the extraction prompt as known vendor context |
 | `output.format` | Active | Sets default `json`, `yaml`, or `csv` output |
-| `llm.providers[].model_path`, `ignored_vendors`, `actions`, `processing`, `logging`, `output.include_hash`, `output.schema_version` | Future | Parsed only; not written by `invo init`; `invo config doctor` reports these when present |
+| `processing.ocr.mode` (`none` \| `same` \| `mistral` \| `llm`), `processing.ocr.model`, `processing.ocr.api_key_env`, `processing.ocr.name`, `processing.ocr.base_url` | Active | OCR fallback for scanned PDFs — see "OCR fallback" below |
+| `actions[]` (`copy` \| `move` \| `export` \| `hook`) | Active | Post-processing — see "Post-processing actions" below |
+| `llm.extraction.max_pdf_text_chars` | Active | Cap on raw PDF text length passed to the LLM (default 32768) — defends against prompt injection blow-ups |
+| `llm.providers[].model_path`, `ignored_vendors`, `processing.parallelism`, `processing.deduplication.*`, `logging`, `output.include_hash`, `output.schema_version` | Future | Parsed only; not written by `invo init`; `invo config doctor` reports these when present |
 
 ## Providers
 
@@ -322,6 +325,82 @@ When `base_url` is omitted, providers use their standard endpoints:
 - Anthropic: `https://api.anthropic.com`
 - Mistral: `https://api.mistral.ai`
 
+## OCR fallback
+
+When native PDF text extraction yields very little text (<50 characters — typical for image-only or scanned PDFs), invo can fall back to a vision/document-model API to recover the text, then feed it into the normal extraction pipeline.
+
+| Backend | PDF inline? | Native deps | Cargo feature | Default model |
+| ------- | ----------- | ----------- | ------------- | ------------- |
+| Mistral (`/v1/ocr`) | yes | none | — | `mistral-ocr-latest` |
+| Anthropic (`/v1/messages` + `document` block) | yes | none | — | `claude-3-5-sonnet-latest` |
+| OpenAI (`/v1/responses` + `input_file`) | yes | none | — | `gpt-4o` |
+| Ollama (vision model + image content) | no — client-side rasterization | PDFium | `--features ollama-ocr` | `llama3.2-vision` |
+
+Three of four backends are cross-platform with **zero native dependencies** — the PDF bytes are sent to a hosted API inline. Ollama vision models accept images only, so its branch is opt-in behind a Cargo feature that pulls in PDFium for rasterization.
+
+The four config modes:
+
+```yaml
+# Off (default) — scanned PDFs error out with an actionable hint.
+processing:
+  ocr:
+    mode: none
+```
+
+```yaml
+# Mistral OCR endpoint — only needs an API key.
+processing:
+  ocr:
+    mode: mistral
+    # model: mistral-ocr-latest         # optional
+    # api_key_env: MISTRAL_API_KEY      # optional, this is the default
+```
+
+```yaml
+# Reuse the extractor provider/model. Works for mistral, anthropic, openai
+# extractors (no rasterization), and ollama when built with --features ollama-ocr.
+processing:
+  ocr:
+    mode: same
+```
+
+```yaml
+# Explicit provider config.
+processing:
+  ocr:
+    mode: llm
+    name: anthropic               # mistral | anthropic | openai | ollama
+    model: claude-3-5-sonnet-latest
+    api_key_env: ANTHROPIC_API_KEY
+    # base_url: ...               # ollama only
+```
+
+When OCR runs, `extraction.ocr_used` flips to `true` in the output.
+
+**Limits & cost (per backend):**
+
+- **Mistral**: 50 MB / 1000 pages per request. ~$0.70 per million OCR tokens (~1000 pages per USD) — see [Mistral pricing](https://mistral.ai/pricing). Mistral's Batch API is ~2× cheaper if you can tolerate async/queued delivery.
+- **Anthropic**: 32 MB / 100 pages per request (via `document` content block). Standard input-token pricing for the model you pick.
+- **OpenAI**: 32 MB per request (via Responses API `input_file`). Standard input-token pricing for the model you pick.
+- **Ollama**: runs locally — no per-call cost. Latency depends on your hardware and the vision model. Quality varies; `llama3.2-vision` works for clean scans, less reliable for noisy/rotated pages.
+
+**Enabling Ollama OCR:**
+
+```bash
+# Install PDFium for your platform:
+brew install pdfium                                        # macOS
+apt install libpdfium-dev                                  # Debian/Ubuntu
+# Windows: download pdfium.dll from https://github.com/bblanchon/pdfium-binaries
+
+# Rebuild invo with the feature:
+cargo install --git https://github.com/HelgeSverre/invo --features ollama-ocr
+
+# Pull a vision model and configure:
+ollama pull llama3.2-vision
+```
+
+Without the feature, `mode: llm` / `mode: same` with Ollama returns an actionable rebuild error — the other three OCR backends still work in the default build.
+
 ## How it works
 
 ```text
@@ -329,13 +408,58 @@ When `base_url` is omitted, providers use their standard endpoints:
                        text             provider              parsed
 ```
 
-The [`pdf_extract`](https://crates.io/crates/pdf-extract) crate parses text out of the PDF. That text, together with a schema-aware system prompt, is sent to the configured provider. The model returns JSON constrained to the `Invoice` schema. invo parses the response — lenient on number and date formats, so currency symbols and comma decimals are handled — and prints the wrapped result. Because extraction relies on `pdf_extract`, image-only PDFs produce no text and will error out.
+The [`pdf_extract`](https://crates.io/crates/pdf-extract) crate parses text out of the PDF. That text, together with a schema-aware system prompt, is sent to the configured provider. The model returns JSON constrained to the `Invoice` schema. invo parses the response — lenient on number and date formats, so currency symbols and comma decimals are handled — and prints the wrapped result. For image-only or scanned PDFs where `pdf_extract` returns nothing useful, the [OCR fallback](#ocr-fallback) routes the PDF bytes through a vision/document model (Mistral in v1) before extraction continues.
+
+## Post-processing actions
+
+Configured actions run after each successful extraction, in config order. Disabled actions are skipped; per-action failures log and continue, except for hook actions with `on_error: abort` which halt that file's processing.
+
+Templates in `destination`, `filename`, and hook `args` substitute these placeholders: `{vendor}`, `{date}` (YYYY-MM-DD), `{year}`, `{month}`, `{day}`, `{invoice_number}` (empty when missing), `{currency}`, `{total}`, `{hash}`, `{original_name}`, `{stem}` (original name without `.pdf`). Path separators (`/`, `\`, `:`) inside expanded filename values are replaced with `_`.
+
+```yaml
+actions:
+  # Copy the source PDF to an organized archive.
+  - type: copy
+    destination: "~/Documents/Receipts/{year}/{month}"
+    filename: "{date}-{vendor}-{invoice_number}.pdf"
+    create_dirs: true
+
+  # Move (delete original after the copy succeeds).
+  - type: move
+    destination: "/tmp/invo-processed"
+    create_dirs: true
+
+  # Export the extracted JSON next to the source.
+  - type: export
+    format: json
+    destination: "~/Documents/Receipts/{year}"
+    filename: "{stem}.json"
+
+  # Shell hook with env vars set: INVO_VENDOR, INVO_TOTAL, INVO_CURRENCY,
+  # INVO_DATE, INVO_INVOICE_NUMBER, INVO_PATH, INVO_HASH, INVO_ORIGINAL_NAME.
+  - type: hook
+    enabled: true
+    command: "/usr/local/bin/notify-send"
+    args: ["Invoice processed", "{vendor} {total} {currency}"]
+    on_error: continue       # or `abort` to halt this file on failure
+```
+
+`notify` action was removed — replace with a `hook` that calls your platform's notifier (`notify-send` on Linux, `osascript` / `terminal-notifier` on macOS).
+
+## Trust model
+
+> **PDF text is attacker-controllable. Do NOT auto-pay from invo output.**
+>
+> An invoice/receipt PDF can be authored by anyone — including the vendor whose totals you're trying to verify. The text inside the PDF flows into an LLM prompt, and LLMs are known to follow instructions hidden in their inputs (prompt injection). A crafted PDF can attempt to coerce the model into reporting an attacker-friendly vendor name or total.
+>
+> invo applies two defensive mitigations: (1) the PDF text region is wrapped in delimiters carrying a per-request 16-char nonce so an attacker cannot reliably close the delimiter, and (2) text is capped at `llm.extraction.max_pdf_text_chars` (default 32768) to bound prompt size. These are mitigations, not guarantees — a sufficiently clever prompt-injection-trained PDF may still steer the model.
+>
+> Use invo output as a structured-data starting point that a human reviews before money moves. Don't wire it directly into payment automation.
 
 ## Limitations
 
-- **No OCR.** Image-only or scanned PDFs produce empty text and error out.
+- **OCR off by default.** Set `processing.ocr.mode` to enable; the default build supports Mistral, Anthropic, and OpenAI without extra deps. Ollama OCR requires `--features ollama-ocr` (PDFium).
 - **Serial processing.** Files are extracted one at a time.
-- **Anthropic and Mistral providers are not implemented.** The CLI accepts `--provider anthropic|mistral` but returns an error.
 - **CSV output is flat.** Line items, tax, and vendor metadata are dropped.
 
 ## License

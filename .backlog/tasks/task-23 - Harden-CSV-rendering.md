@@ -4,13 +4,14 @@ title: Harden CSV rendering
 status: To Do
 assignee: []
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-25 15:31'
+updated_date: '2026-05-27 00:44'
 labels:
   - output
   - cli
 dependencies: []
 modified_files:
-  - src/main.rs
+  - src/output.rs
+  - Cargo.toml
 priority: medium
 ordinal: 25000
 ---

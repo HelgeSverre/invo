@@ -4,7 +4,7 @@ title: Add parallel batch processing
 status: To Do
 assignee: []
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-25 15:31'
+updated_date: '2026-05-27 00:44'
 labels:
   - feature
   - batch
@@ -12,7 +12,10 @@ labels:
 dependencies: []
 modified_files:
   - src/main.rs
+  - src/input.rs
+  - src/output.rs
   - src/config.rs
+  - src/agent_context.rs
   - README.md
 priority: medium
 ordinal: 31000

@@ -166,6 +166,12 @@ pub struct ExtractionSettings {
 
     #[serde(default = "default_retry_attempts")]
     pub retry_attempts: u32,
+
+    /// Cap on raw PDF text length (chars) sent to the LLM. Defends against
+    /// prompt-injection blowups and runaway token usage on adversarial PDFs.
+    /// Pdf-extract output beyond this length is truncated at a char boundary.
+    #[serde(default = "default_max_pdf_text_chars")]
+    pub max_pdf_text_chars: usize,
 }
 
 impl Default for ExtractionSettings {
@@ -174,6 +180,7 @@ impl Default for ExtractionSettings {
             temperature: default_temperature(),
             max_tokens: default_max_tokens(),
             retry_attempts: default_retry_attempts(),
+            max_pdf_text_chars: default_max_pdf_text_chars(),
         }
     }
 }
@@ -186,6 +193,9 @@ fn default_max_tokens() -> u32 {
 }
 fn default_retry_attempts() -> u32 {
     2
+}
+fn default_max_pdf_text_chars() -> usize {
+    32_768
 }
 fn default_true() -> bool {
     true
@@ -260,15 +270,20 @@ pub enum OutputFormat {
     Csv,
 }
 
-/// Post-processing action
+/// Post-processing action that runs after a successful extraction.
+///
+/// Notify was removed (TASK-31): desktop notifications would require a
+/// platform-specific dep and were weakly motivated for a CLI. Configs that
+/// previously included `actions: [{ type: notify, ... }]` will now fail
+/// strict validation — remove the entry or replace with a `hook` action
+/// that invokes `notify-send` / `osascript` / `terminal-notifier` directly.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(tag = "type", rename_all = "lowercase")]
+#[serde(tag = "type", rename_all = "lowercase", deny_unknown_fields)]
 pub enum Action {
     Copy(FileAction),
     Move(FileAction),
     Export(ExportAction),
     Hook(HookAction),
-    Notify(NotifyAction),
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
@@ -324,22 +339,6 @@ pub enum OnError {
     Abort,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct NotifyAction {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-
-    #[serde(default = "default_notify_title")]
-    pub title: String,
-
-    pub message: String,
-}
-
-fn default_notify_title() -> String {
-    "Invoice Processed".to_string()
-}
-
 /// Processing options
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
@@ -368,34 +367,41 @@ fn default_parallelism() -> usize {
     4
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct OcrConfig {
-    #[serde(default = "default_true")]
-    pub enabled: bool,
-
-    #[serde(default = "default_ocr_language")]
-    pub language: String,
-
-    #[serde(default = "default_ocr_dpi")]
-    pub dpi: u32,
+/// OCR fallback for scanned/image-only PDFs. The variant selects how OCR is
+/// performed when native PDF text extraction yields too little text.
+///
+/// - `None` (default): no OCR; extraction fails on scanned PDFs with an actionable hint.
+/// - `Same`: reuse the extractor's resolved provider and credentials. v1 only
+///   supports Mistral as the extractor; other providers return a clear error.
+/// - `Mistral`: hardcoded Mistral `/v1/ocr` endpoint, base64 PDF inline.
+/// - `Llm`: arbitrary provider config. v1 only supports `name = mistral`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[serde(tag = "mode", rename_all = "lowercase", deny_unknown_fields)]
+pub enum OcrConfig {
+    #[default]
+    None,
+    Same,
+    Mistral {
+        #[serde(default = "default_mistral_ocr_model")]
+        model: String,
+        #[serde(default = "default_mistral_api_key_env")]
+        api_key_env: String,
+    },
+    Llm {
+        name: ProviderName,
+        model: String,
+        #[serde(default)]
+        api_key_env: Option<String>,
+        #[serde(default)]
+        base_url: Option<String>,
+    },
 }
 
-impl Default for OcrConfig {
-    fn default() -> Self {
-        Self {
-            enabled: true,
-            language: default_ocr_language(),
-            dpi: default_ocr_dpi(),
-        }
-    }
+fn default_mistral_ocr_model() -> String {
+    "mistral-ocr-latest".to_string()
 }
-
-fn default_ocr_language() -> String {
-    "eng".to_string()
-}
-fn default_ocr_dpi() -> u32 {
-    300
+fn default_mistral_api_key_env() -> String {
+    "MISTRAL_API_KEY".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
@@ -497,28 +503,9 @@ pub fn load_config_status(path: Option<&PathBuf>) -> Result<LoadedConfig> {
 }
 
 pub fn parse_config_str(contents: &str, config_path: &std::path::Path) -> Result<Config> {
-    serde_yaml::from_str(contents).map_err(|e| {
-        anyhow!(
-            "Failed to parse config file: {:?}: {}",
-            config_path,
-            e
-        )
-    })
-
-
-
-
-
-
-
-
+    serde_yaml::from_str(contents)
+        .map_err(|e| anyhow!("Failed to parse config file: {:?}: {}", config_path, e))
 }
-
-
-
-
-
-
 
 #[cfg(test)]
 mod tests {

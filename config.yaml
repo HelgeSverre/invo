@@ -50,3 +50,32 @@ vendors: []
 # Output configuration
 output:
   format: json
+
+# Processing options.
+# OCR fallback runs only when native PDF text extraction yields <50 chars
+# (image-only / scanned PDFs). Supported backends:
+#   - mistral / anthropic / openai: zero native deps, PDF sent inline
+#   - ollama: requires --features ollama-ocr (PDFium rasterization)
+#
+# processing:
+#   ocr:
+#     mode: none                             # default; OCR disabled
+#
+#   # Mistral OCR endpoint:
+#   # ocr:
+#   #   mode: mistral
+#   #   model: mistral-ocr-latest            # optional
+#   #   api_key_env: MISTRAL_API_KEY         # optional, this is the default
+#
+#   # Reuse the extractor provider (works for mistral/anthropic/openai;
+#   # ollama needs --features ollama-ocr):
+#   # ocr:
+#   #   mode: same
+#
+#   # Explicit provider config:
+#   # ocr:
+#   #   mode: llm
+#   #   name: anthropic                      # mistral | anthropic | openai | ollama
+#   #   model: claude-3-5-sonnet-latest
+#   #   api_key_env: ANTHROPIC_API_KEY
+#   #   # base_url: http://localhost:11434   # ollama only

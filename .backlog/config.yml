@@ -2,6 +2,13 @@ project_name: "Invo"
 default_status: "To Do"
 statuses: ["To Do", "In Progress", "Done"]
 labels: []
+definition_of_done:
+  - "Acceptance criteria are satisfied and checked"
+  - "Relevant tests are added or updated"
+  - "cargo fmt, cargo test, and cargo clippy --all-targets -- -D warnings pass"
+  - "Documentation/help/config examples are updated when behavior or user-facing output changes"
+  - "Backlog task notes and final summary describe what changed and how it was verified"
+  - "Self-review confirms no unrelated changes, secrets, or debug artifacts are included"
 date_format: yyyy-mm-dd
 max_column_width: 20
 default_editor: "zed"

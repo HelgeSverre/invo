@@ -4,15 +4,19 @@ title: Implement deduplication using file hashes
 status: To Do
 assignee: []
 created_date: '2026-05-25 15:31'
-updated_date: '2026-05-25 15:31'
+updated_date: '2026-05-27 00:44'
 labels:
   - feature
   - deduplication
 dependencies: []
 modified_files:
+  - src/dedup.rs
   - src/config.rs
   - src/main.rs
+  - src/extractor.rs
   - src/pdf.rs
+  - src/config_commands.rs
+  - src/agent_context.rs
   - README.md
 priority: medium
 ordinal: 33000

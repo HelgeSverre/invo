@@ -1,8 +1,7 @@
 use anyhow::{Context, Result};
 use sha2::{Digest, Sha256};
-use std::path::Path;
 
-const MIN_MEANINGFUL_TEXT_LENGTH: usize = 50;
+pub(crate) const MIN_MEANINGFUL_TEXT_LENGTH: usize = 50;
 const PDF_MAGIC: &[u8; 4] = b"%PDF";
 const SHORT_HASH_LEN: usize = 16;
 
@@ -15,20 +14,12 @@ pub struct PdfExtractionResult {
     pub ocr_used: bool,
 }
 
-/// Extract text from a PDF file
-pub fn extract_text(path: &Path) -> Result<PdfExtractionResult> {
-    let bytes =
-        std::fs::read(path).with_context(|| format!("Failed to read PDF file: {:?}", path))?;
-
-    extract_text_from_bytes(&bytes, &format!("{:?}", path))
-}
-
-/// Extract text from PDF bytes, using source_name for diagnostics only.
-pub fn extract_text_from_bytes(bytes: &[u8], source_name: &str) -> Result<PdfExtractionResult> {
+/// Extract text from PDF bytes.
+pub fn extract_text(bytes: &[u8]) -> Result<PdfExtractionResult> {
     let file_hash = short_sha256(bytes);
 
     let text = pdf_extract::extract_text_from_mem(bytes)
-        .with_context(|| format!("Failed to extract text from PDF: {}", source_name))?;
+        .context("Failed to extract text from PDF bytes")?;
     let page_count = count_pages(bytes);
 
     let cleaned_text = text.trim();
@@ -47,11 +38,17 @@ pub fn extract_text_from_bytes(bytes: &[u8], source_name: &str) -> Result<PdfExt
     })
 }
 
+// Short identifier prefix of a SHA-256 over the PDF bytes. Today this is a
+// 16-char lowercase hex prefix (64 bits — fine for human-scale collision
+// avoidance; revisit when TASK-32 wires it into dedup, where birthday
+// collisions matter at ~4B documents). We slice by char (not byte) so a
+// future refactor to base64 or any non-ASCII encoding cannot panic on a
+// non-char-boundary index.
 fn short_sha256(bytes: &[u8]) -> String {
     let mut hasher = Sha256::new();
     hasher.update(bytes);
     let hash = format!("{:x}", hasher.finalize());
-    hash[..SHORT_HASH_LEN].to_string()
+    hash.chars().take(SHORT_HASH_LEN).collect()
 }
 
 /// Count pages in a PDF (best effort)
@@ -62,28 +59,9 @@ fn count_pages(bytes: &[u8]) -> usize {
         .max(1)
 }
 
-/// Check if a file is a valid PDF (by extension + magic bytes).
-pub fn is_pdf(path: &Path) -> bool {
-    if !has_pdf_extension(path) {
-        return false;
-    }
-
-    use std::io::Read;
-    let Ok(mut file) = std::fs::File::open(path) else {
-        return false;
-    };
-    let mut magic = [0u8; 4];
-    file.read_exact(&mut magic).is_ok() && is_pdf_bytes(&magic)
-}
-
 /// Check whether bytes start with the PDF magic header.
 pub fn is_pdf_bytes(bytes: &[u8]) -> bool {
     bytes.starts_with(PDF_MAGIC)
-}
-
-fn has_pdf_extension(path: &Path) -> bool {
-    path.extension()
-        .is_some_and(|ext| ext.to_string_lossy().to_lowercase() == "pdf")
 }
 
 #[cfg(test)]
@@ -94,5 +72,23 @@ mod tests {
     fn detects_pdf_magic_bytes() {
         assert!(is_pdf_bytes(b"%PDF-1.7\n"));
         assert!(!is_pdf_bytes(b"not a pdf"));
+    }
+
+    #[test]
+    fn short_sha256_is_16_lowercase_hex_chars() {
+        let hash = short_sha256(b"%PDF-1.7\n");
+        assert_eq!(hash.len(), SHORT_HASH_LEN);
+        assert_eq!(hash.chars().count(), SHORT_HASH_LEN);
+        assert!(
+            hash.chars()
+                .all(|c| c.is_ascii_hexdigit() && !c.is_ascii_uppercase()),
+            "expected lowercase hex, got {hash:?}"
+        );
+    }
+
+    #[test]
+    fn short_sha256_is_deterministic() {
+        assert_eq!(short_sha256(b"abc"), short_sha256(b"abc"));
+        assert_ne!(short_sha256(b"abc"), short_sha256(b"abd"));
     }
 }

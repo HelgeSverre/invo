@@ -11,7 +11,101 @@ pub struct LlmExtraction {
     pub provider: String,
 }
 
-fn select_provider_config(
+/// Built once per process and reused across every batch item, so the
+/// rig-core / reqwest connection pool survives between extractions instead
+/// of paying a fresh TCP+TLS handshake per file. Also gives us a stable
+/// place to hang the resolved Provider for OCR `mode: same` to read.
+pub struct LlmContext {
+    provider: Provider,
+    client: LlmClient,
+}
+
+enum LlmClient {
+    Ollama(ollama::Client),
+    OpenAI(openai::Client),
+    Anthropic(anthropic::Client),
+    Mistral(mistral::Client),
+}
+
+impl LlmContext {
+    pub fn build(config: &Config, provider_override: Option<ProviderName>) -> Result<Self> {
+        let provider = select_provider_config(config, provider_override)?.clone();
+        let client = match provider.name {
+            ProviderName::Ollama => LlmClient::Ollama(build_ollama_client(&provider)?),
+            ProviderName::OpenAI => {
+                let api_key = get_api_key(provider.name, &provider.api_key_env)?;
+                LlmClient::OpenAI(openai::Client::new(api_key)?)
+            }
+            ProviderName::Anthropic => {
+                let api_key = get_api_key(provider.name, &provider.api_key_env)?;
+                LlmClient::Anthropic(build_anthropic_client(&provider, api_key)?)
+            }
+            ProviderName::Mistral => {
+                let api_key = get_api_key(provider.name, &provider.api_key_env)?;
+                LlmClient::Mistral(build_mistral_client(&provider, api_key)?)
+            }
+        };
+        Ok(Self { provider, client })
+    }
+
+    pub fn provider(&self) -> &Provider {
+        &self.provider
+    }
+
+    pub async fn extract(
+        &self,
+        config: &Config,
+        system_prompt: String,
+        user_message: String,
+    ) -> Result<LlmExtraction> {
+        let invoice = match &self.client {
+            LlmClient::Ollama(c) => {
+                complete_invoice(
+                    c.completion_model(&self.provider.model),
+                    config,
+                    &system_prompt,
+                    &user_message,
+                )
+                .await?
+            }
+            LlmClient::OpenAI(c) => {
+                complete_invoice(
+                    c.completion_model(&self.provider.model),
+                    config,
+                    &system_prompt,
+                    &user_message,
+                )
+                .await?
+            }
+            LlmClient::Anthropic(c) => {
+                complete_invoice(
+                    c.completion_model(&self.provider.model),
+                    config,
+                    &system_prompt,
+                    &user_message,
+                )
+                .await?
+            }
+            LlmClient::Mistral(c) => {
+                complete_invoice(
+                    c.completion_model(&self.provider.model),
+                    config,
+                    &system_prompt,
+                    &user_message,
+                )
+                .await?
+            }
+        };
+
+        Ok(LlmExtraction {
+            invoice,
+            model: self.provider.model.clone(),
+            provider: self.provider.name.as_str().to_string(),
+        })
+    }
+}
+
+pub(crate) fn select_provider_config(
     config: &Config,
     provider_override: Option<ProviderName>,
 ) -> Result<&Provider> {
@@ -35,47 +129,6 @@ fn select_provider_config(
             .find(|provider| provider.enabled)
             .ok_or_else(|| anyhow!("No enabled LLM provider found in config. Enable one llm.providers entry or pass --provider <name> to select a configured provider for this run.")),
     }
-}
-
-pub async fn extract_invoice_data(
-    config: &Config,
-    provider_override: Option<ProviderName>,
-    system_prompt: String,
-    user_message: String,
-) -> Result<LlmExtraction> {
-    let provider_config = select_provider_config(config, provider_override)?;
-
-    let invoice = match provider_config.name {
-        ProviderName::Ollama => {
-            let client = build_ollama_client(provider_config)?;
-            let model = client.completion_model(&provider_config.model);
-            complete_invoice(model, config, &system_prompt, &user_message).await?
-        }
-        ProviderName::OpenAI => {
-            let api_key = get_api_key(provider_config.name, &provider_config.api_key_env)?;
-            let client = openai::Client::new(api_key)?;
-            let model = client.completion_model(&provider_config.model);
-            complete_invoice(model, config, &system_prompt, &user_message).await?
-        }
-        ProviderName::Anthropic => {
-            let api_key = get_api_key(provider_config.name, &provider_config.api_key_env)?;
-            let client = build_anthropic_client(provider_config, api_key)?;
-            let model = client.completion_model(&provider_config.model);
-            complete_invoice(model, config, &system_prompt, &user_message).await?
-        }
-        ProviderName::Mistral => {
-            let api_key = get_api_key(provider_config.name, &provider_config.api_key_env)?;
-            let client = build_mistral_client(provider_config, api_key)?;
-            let model = client.completion_model(&provider_config.model);
-            complete_invoice(model, config, &system_prompt, &user_message).await?
-        }
-    };
-
-    Ok(LlmExtraction {
-        invoice,
-        model: provider_config.model.clone(),
-        provider: provider_config.name.as_str().to_string(),
-    })
 }
 
 fn build_ollama_client(provider_config: &Provider) -> Result<ollama::Client> {
@@ -254,6 +307,28 @@ mod tests {
     }
 
     #[test]
+    fn llm_context_caches_provider_metadata_for_reuse() {
+        // Regression for TASK-63: LlmContext::build resolves the provider
+        // once and exposes it for repeated calls. The resolved Provider on
+        // the context should not need a re-lookup against config for OCR
+        // mode=same or for subsequent extract() calls.
+        let cfg = Config {
+            llm: LlmConfig {
+                providers: vec![provider(ProviderName::Ollama, true, "qwen-live")],
+                extraction: ExtractionSettings::default(),
+            },
+            ..Config::default()
+        };
+        let ctx = LlmContext::build(&cfg, None).expect("ctx builds");
+        assert_eq!(ctx.provider().name, ProviderName::Ollama);
+        assert_eq!(ctx.provider().model, "qwen-live");
+        // Stays stable across reads — same pointer, same metadata.
+        let p1 = ctx.provider() as *const _;
+        let p2 = ctx.provider() as *const _;
+        assert_eq!(p1, p2);
+    }
+
+    #[test]
     fn selects_requested_enabled_provider() {
         let config = Config {
             llm: LlmConfig {
@@ -336,6 +411,7 @@ mod tests {
                     temperature: 0.42,
                     max_tokens: 321,
                     retry_attempts: 0,
+                    ..ExtractionSettings::default()
                 },
             },
             ..Config::default()
@@ -366,6 +442,7 @@ mod tests {
                     temperature: 0.1,
                     max_tokens: 2000,
                     retry_attempts: 1,
+                    ..ExtractionSettings::default()
                 },
             },
             ..Config::default()
