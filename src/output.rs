@@ -21,16 +21,18 @@ pub fn render_results(
         return Ok(String::new());
     }
 
-    let format = output_format(config, options)?;
-
-    match format {
+    match output_format(config, options) {
         OutputFormat::Json => render_json_results(results, options),
         OutputFormat::Yaml => render_yaml_results(results),
         OutputFormat::Csv => render_csv_results(results),
     }
 }
 
-pub fn output_format(config: &Config, options: &OutputOptions) -> Result<OutputFormat> {
+/// Reject flag combinations that cannot agree, before we touch any inputs.
+/// `--json` / `--json-array` are JSON aliases and conflict with `--format yaml`
+/// or `--format csv`. main wires this at startup so a bad combo fails fast
+/// without first reading the config or walking the filesystem.
+pub fn validate_output_flags(options: &OutputOptions) -> Result<()> {
     if options.json || options.json_array {
         if let Some(format) = options
             .format
@@ -41,10 +43,17 @@ pub fn output_format(config: &Config, options: &OutputOptions) -> Result<OutputF
                 format
             ));
         }
-        return Ok(OutputFormat::Json);
     }
+    Ok(())
+}
 
-    Ok(options.format.unwrap_or(config.output.format))
+/// Pick the output format. Trusts that the caller already invoked
+/// `validate_output_flags`, so this is pure computation and never errors.
+pub fn output_format(config: &Config, options: &OutputOptions) -> OutputFormat {
+    if options.json || options.json_array {
+        return OutputFormat::Json;
+    }
+    options.format.unwrap_or(config.output.format)
 }
 
 fn render_json_results(results: &[ExtractionResult], options: &OutputOptions) -> Result<String> {
@@ -142,7 +151,7 @@ pub fn is_ndjson_stream(config: &Config, options: &OutputOptions, input_count: u
     if input_count <= 1 {
         return false;
     }
-    matches!(output_format(config, options), Ok(OutputFormat::Json))
+    matches!(output_format(config, options), OutputFormat::Json)
 }
 
 /// Write a single ExtractionResult as one compact NDJSON line + flush so a
@@ -282,10 +291,29 @@ mod tests {
         options.json = true;
         options.format = Some(OutputFormat::Yaml);
 
-        let error = output_format(&Config::default(), &options)
+        let error = validate_output_flags(&options)
             .expect_err("json aliases should conflict with non-json format");
 
         assert!(error.to_string().contains("--json"));
+    }
+
+    #[test]
+    fn validate_output_flags_passes_for_compatible_combinations() {
+        // No json alias + any format -> ok.
+        let mut csv_only = options();
+        csv_only.format = Some(OutputFormat::Csv);
+        assert!(validate_output_flags(&csv_only).is_ok());
+
+        // --json alone -> ok.
+        let mut json_alone = options();
+        json_alone.json = true;
+        assert!(validate_output_flags(&json_alone).is_ok());
+
+        // --json + --format json -> ok (the alias is consistent).
+        let mut json_with_format = options();
+        json_with_format.json = true;
+        json_with_format.format = Some(OutputFormat::Json);
+        assert!(validate_output_flags(&json_with_format).is_ok());
     }
 
     #[test]

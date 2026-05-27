@@ -21,7 +21,9 @@ use config_commands::{handle_config_command, handle_init, ConfigCommandOptions};
 use extractor::extract_invoice;
 use input::{collect_inputs, InputOptions};
 use llm::LlmContext;
-use output::{is_ndjson_stream, output_format, render_results, write_ndjson_record, OutputOptions};
+use output::{
+    is_ndjson_stream, render_results, validate_output_flags, write_ndjson_record, OutputOptions,
+};
 
 #[derive(Parser)]
 #[command(name = "invo")]
@@ -149,7 +151,7 @@ async fn main() -> Result<()> {
 
     let config = load_config(cli.config.as_ref())?;
     let output_options = output_options(&cli);
-    let _ = output_format(&config, &output_options)?;
+    validate_output_flags(&output_options)?;
 
     let input_options = input_options(&cli);
     let inputs = collect_inputs(&input_options)?;

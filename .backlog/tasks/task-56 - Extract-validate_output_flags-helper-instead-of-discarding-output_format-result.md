@@ -3,8 +3,9 @@ id: TASK-56
 title: >-
   Extract validate_output_flags helper instead of discarding output_format
   result
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:10'
 updated_date: '2026-05-27 00:44'
 labels:
@@ -27,7 +28,7 @@ src/main.rs still calls output::output_format early only for its error side effe
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 validate_output_flags(&cli) -> Result<()> is extracted to do only the conflict check
-- [ ] #2 main.rs invokes validate_output_flags(&cli)? early instead of the let _ = pattern
-- [ ] #3 output_format keeps its single responsibility of computing the format for render_results
+- [x] #1 validate_output_flags(&cli) -> Result<()> is extracted to do only the conflict check (takes &OutputOptions; cleaner than threading the whole Cli struct through output.rs)
+- [x] #2 main.rs invokes validate_output_flags(&cli)? early instead of the let _ = pattern
+- [x] #3 output_format keeps its single responsibility of computing the format for render_results (no longer returns Result; it's pure now)
 <!-- AC:END -->
