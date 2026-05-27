@@ -97,10 +97,25 @@ pub async fn extract_invoice(
 const EXTRACT_PROMPT: &str =
     "Extract all text from this document verbatim as markdown. Preserve line items, totals, and dates. Do not summarize or omit anything.";
 
-const DEFAULT_MISTRAL_OCR_MODEL: &str = "mistral-ocr-latest";
-const DEFAULT_ANTHROPIC_OCR_MODEL: &str = "claude-3-5-sonnet-latest";
-const DEFAULT_OPENAI_OCR_MODEL: &str = "gpt-4o";
-const DEFAULT_OLLAMA_OCR_MODEL: &str = "llama3.2-vision";
+struct OcrDefaults {
+    model: &'static str,
+}
+
+const fn ocr_defaults(name: ProviderName) -> OcrDefaults {
+    match name {
+        ProviderName::Mistral => OcrDefaults {
+            model: "mistral-ocr-latest",
+        },
+        ProviderName::Anthropic => OcrDefaults {
+            model: "claude-3-5-sonnet-latest",
+        },
+        ProviderName::OpenAI => OcrDefaults { model: "gpt-4o" },
+        ProviderName::Ollama => OcrDefaults {
+            model: "llama3.2-vision",
+        },
+    }
+}
+
 const DEFAULT_OLLAMA_OCR_URL: &str = "http://localhost:11434";
 
 /// Authentication shape per provider. Cheap to pass by value.
@@ -201,7 +216,7 @@ fn resolve_ocr(ocr: &OcrConfig, extractor: &Provider) -> Result<ResolvedOcr> {
 fn resolve_from_extractor(extractor: &Provider) -> Result<ResolvedOcr> {
     match extractor.name {
         ProviderName::Mistral => Ok(ResolvedOcr::Mistral {
-            model: nonempty_or(&extractor.model, DEFAULT_MISTRAL_OCR_MODEL),
+            model: nonempty_or(&extractor.model, ocr_defaults(ProviderName::Mistral).model),
             api_key: read_env(
                 extractor
                     .api_key_env
@@ -210,7 +225,10 @@ fn resolve_from_extractor(extractor: &Provider) -> Result<ResolvedOcr> {
             )?,
         }),
         ProviderName::Anthropic => Ok(ResolvedOcr::Anthropic {
-            model: nonempty_or(&extractor.model, DEFAULT_ANTHROPIC_OCR_MODEL),
+            model: nonempty_or(
+                &extractor.model,
+                ocr_defaults(ProviderName::Anthropic).model,
+            ),
             api_key: read_env(
                 extractor
                     .api_key_env
@@ -219,11 +237,11 @@ fn resolve_from_extractor(extractor: &Provider) -> Result<ResolvedOcr> {
             )?,
         }),
         ProviderName::OpenAI => Ok(ResolvedOcr::OpenAi {
-            model: nonempty_or(&extractor.model, DEFAULT_OPENAI_OCR_MODEL),
+            model: nonempty_or(&extractor.model, ocr_defaults(ProviderName::OpenAI).model),
             api_key: read_env(extractor.api_key_env.as_deref().unwrap_or("OPENAI_API_KEY"))?,
         }),
         ProviderName::Ollama => Ok(ResolvedOcr::Ollama {
-            model: nonempty_or(&extractor.model, DEFAULT_OLLAMA_OCR_MODEL),
+            model: nonempty_or(&extractor.model, ocr_defaults(ProviderName::Ollama).model),
             base_url: extractor
                 .base_url
                 .clone()
@@ -240,19 +258,19 @@ fn resolve_llm(
 ) -> Result<ResolvedOcr> {
     match name {
         ProviderName::Mistral => Ok(ResolvedOcr::Mistral {
-            model: nonempty_or(model, DEFAULT_MISTRAL_OCR_MODEL),
+            model: nonempty_or(model, ocr_defaults(ProviderName::Mistral).model),
             api_key: read_env(api_key_env.unwrap_or("MISTRAL_API_KEY"))?,
         }),
         ProviderName::Anthropic => Ok(ResolvedOcr::Anthropic {
-            model: nonempty_or(model, DEFAULT_ANTHROPIC_OCR_MODEL),
+            model: nonempty_or(model, ocr_defaults(ProviderName::Anthropic).model),
             api_key: read_env(api_key_env.unwrap_or("ANTHROPIC_API_KEY"))?,
         }),
         ProviderName::OpenAI => Ok(ResolvedOcr::OpenAi {
-            model: nonempty_or(model, DEFAULT_OPENAI_OCR_MODEL),
+            model: nonempty_or(model, ocr_defaults(ProviderName::OpenAI).model),
             api_key: read_env(api_key_env.unwrap_or("OPENAI_API_KEY"))?,
         }),
         ProviderName::Ollama => Ok(ResolvedOcr::Ollama {
-            model: nonempty_or(model, DEFAULT_OLLAMA_OCR_MODEL),
+            model: nonempty_or(model, ocr_defaults(ProviderName::Ollama).model),
             base_url: base_url.unwrap_or(DEFAULT_OLLAMA_OCR_URL).to_string(),
         }),
     }
@@ -789,7 +807,7 @@ mod tests {
         let text = ocr_via_mistral(
             &test_http_client(),
             &sample_pdf_bytes(),
-            DEFAULT_MISTRAL_OCR_MODEL,
+            ocr_defaults(ProviderName::Mistral).model,
             &api_key,
         )
         .await
@@ -805,7 +823,7 @@ mod tests {
         let text = ocr_via_anthropic(
             &test_http_client(),
             &sample_pdf_bytes(),
-            DEFAULT_ANTHROPIC_OCR_MODEL,
+            ocr_defaults(ProviderName::Anthropic).model,
             &api_key,
         )
         .await
@@ -821,7 +839,7 @@ mod tests {
         let text = ocr_via_openai(
             &test_http_client(),
             &sample_pdf_bytes(),
-            DEFAULT_OPENAI_OCR_MODEL,
+            ocr_defaults(ProviderName::OpenAI).model,
             &api_key,
         )
         .await
@@ -839,7 +857,7 @@ mod tests {
         let text = ocr_via_ollama(
             &test_http_client(),
             &sample_pdf_bytes(),
-            DEFAULT_OLLAMA_OCR_MODEL,
+            ocr_defaults(ProviderName::Ollama).model,
             DEFAULT_OLLAMA_OCR_URL,
         )
         .await
