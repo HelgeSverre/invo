@@ -423,6 +423,94 @@ mod tests {
     }
 
     #[test]
+    fn csv_escapes_embedded_comma_in_vendor() {
+        let output = render_results(
+            &[csv_result(invoice_with("Acme, Inc.", 1.0, None))],
+            &Config::default(),
+            &csv_options(),
+        )
+        .expect("csv should render");
+
+        let mut reader = csv::Reader::from_reader(output.as_bytes());
+        let row = reader
+            .records()
+            .next()
+            .expect("one row")
+            .expect("row should parse");
+        assert_eq!(row.get(0), Some("Acme, Inc."));
+        assert!(
+            output.contains("\"Acme, Inc.\""),
+            "comma-bearing field must be quoted, got: {output:?}"
+        );
+    }
+
+    #[test]
+    fn csv_escapes_embedded_quote_in_invoice_number() {
+        let output = render_results(
+            &[csv_result(invoice_with("Acme", 1.0, Some("INV\"42")))],
+            &Config::default(),
+            &csv_options(),
+        )
+        .expect("csv should render");
+
+        let mut reader = csv::Reader::from_reader(output.as_bytes());
+        let row = reader
+            .records()
+            .next()
+            .expect("one row")
+            .expect("row should parse");
+        assert_eq!(row.get(4), Some("INV\"42"));
+        assert!(
+            output.contains("\"INV\"\"42\""),
+            "quote-bearing field must double the quote, got: {output:?}"
+        );
+    }
+
+    #[test]
+    fn csv_escapes_embedded_newline_in_vendor() {
+        let output = render_results(
+            &[csv_result(invoice_with("Acme\nLtd", 1.0, None))],
+            &Config::default(),
+            &csv_options(),
+        )
+        .expect("csv should render");
+
+        let mut reader = csv::Reader::from_reader(output.as_bytes());
+        let row = reader
+            .records()
+            .next()
+            .expect("one row")
+            .expect("row should parse");
+        assert_eq!(row.get(0), Some("Acme\nLtd"));
+        assert!(
+            output.contains("\"Acme\nLtd\""),
+            "newline-bearing field must be quoted, got: {output:?}"
+        );
+    }
+
+    #[test]
+    fn csv_plain_ascii_field_is_not_quoted() {
+        let output = render_results(
+            &[csv_result(invoice_with("Acme", 1.0, Some("INV-42")))],
+            &Config::default(),
+            &csv_options(),
+        )
+        .expect("csv should render");
+
+        // Header line plus a data line with no quoting since no special chars
+        // appear in any field.
+        let lines: Vec<_> = output.lines().collect();
+        assert_eq!(lines.len(), 2);
+        assert_eq!(lines[0], "vendor,date,total,currency,invoice_number");
+        assert_eq!(lines[1], "Acme,2026-05-25,1,USD,INV-42");
+        assert!(
+            !lines[1].contains('"'),
+            "plain ASCII row must not introduce quotes, got: {:?}",
+            lines[1]
+        );
+    }
+
+    #[test]
     fn csv_renders_empty_total_for_nan_and_infinity() {
         for total in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
             let output = render_results(
