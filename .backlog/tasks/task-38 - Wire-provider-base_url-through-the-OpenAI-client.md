@@ -1,8 +1,9 @@
 ---
 id: TASK-38
 title: Wire provider base_url through the OpenAI client
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:07'
 labels:
   - code-review
@@ -24,7 +25,7 @@ src/llm.rs:56 uses openai::Client::new(api_key)? which never consumes provider_c
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 OpenAI client construction passes provider_config.base_url to a builder, mirroring build_anthropic_client
-- [ ] #2 When base_url is configured for OpenAI, requests target that endpoint (not api.openai.com)
-- [ ] #3 Regression test mirrors the existing ollama_uses_configured_base_url shape for OpenAI
+- [x] #1 OpenAI client construction passes provider_config.base_url to a builder, mirroring build_anthropic_client
+- [x] #2 When base_url is configured for OpenAI, requests target that endpoint (not api.openai.com)
+- [x] #3 Regression test mirrors the existing ollama_uses_configured_base_url shape for OpenAI
 <!-- AC:END -->

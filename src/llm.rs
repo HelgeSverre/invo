@@ -34,7 +34,7 @@ impl LlmContext {
             ProviderName::Ollama => LlmClient::Ollama(build_ollama_client(&provider)?),
             ProviderName::OpenAI => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::OpenAI(openai::Client::new(api_key)?)
+                LlmClient::OpenAI(build_openai_client(&provider, api_key)?)
             }
             ProviderName::Anthropic => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
@@ -139,6 +139,18 @@ fn build_ollama_client(provider_config: &Provider) -> Result<ollama::Client> {
                 .base_url
                 .as_deref()
                 .unwrap_or(DEFAULT_OLLAMA_URL),
+        )
+        .build()?)
+}
+
+fn build_openai_client(provider_config: &Provider, api_key: String) -> Result<openai::Client> {
+    Ok(openai::Client::builder()
+        .api_key(api_key)
+        .base_url(
+            provider_config
+                .base_url
+                .as_deref()
+                .unwrap_or("https://api.openai.com/v1"),
         )
         .build()?)
 }
@@ -514,6 +526,41 @@ mod tests {
 
         let client = build_ollama_client(&provider).expect("should build client");
         assert!(client.base_url().contains("custom-ollama"));
+    }
+
+    #[test]
+    fn openai_uses_default_base_url_when_not_configured() {
+        let provider = Provider {
+            name: ProviderName::OpenAI,
+            enabled: true,
+            model: "gpt-4".to_string(),
+            base_url: None,
+            model_path: None,
+            api_key_env: None,
+        };
+
+        let client =
+            build_openai_client(&provider, "sk-test".to_string()).expect("should build client");
+        assert!(client.base_url().contains("api.openai.com"));
+    }
+
+    #[test]
+    fn openai_uses_configured_base_url() {
+        // Corporate-proxy regression: if base_url is configured, the client
+        // must point at the proxy and not leak the API key to api.openai.com.
+        let provider = Provider {
+            name: ProviderName::OpenAI,
+            enabled: true,
+            model: "gpt-4".to_string(),
+            base_url: Some("https://proxy.corp.local/openai/v1".to_string()),
+            model_path: None,
+            api_key_env: None,
+        };
+
+        let client =
+            build_openai_client(&provider, "sk-test".to_string()).expect("should build client");
+        assert!(client.base_url().contains("proxy.corp.local"));
+        assert!(!client.base_url().contains("api.openai.com"));
     }
 
     #[tokio::test]
