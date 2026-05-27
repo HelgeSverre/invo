@@ -172,6 +172,7 @@ async fn main() -> Result<()> {
     let input_count = inputs.len();
     let streaming = is_ndjson_stream(&config, &output_options, input_count);
     let mut results = Vec::new();
+    let mut success_count: usize = 0;
 
     for input_spec in inputs {
         let input_path = input_spec.path.clone();
@@ -199,6 +200,7 @@ async fn main() -> Result<()> {
                 } else {
                     results.push(result);
                 }
+                success_count += 1;
             }
             Err(error) => {
                 tracing::error!("Failed to process {}: {}", input.path, error);
@@ -211,6 +213,16 @@ async fn main() -> Result<()> {
 
     if !streaming {
         print!("{}", render_results(&results, &config, &output_options)?);
+    }
+
+    // Batch with zero successes must surface a non-zero exit so wrappers like
+    // `invo *.pdf || handle` don't see false success and archive empty output.
+    // Single-file failures already propagated above as anyhow::Err.
+    if input_count > 1 && success_count == 0 {
+        eprintln!(
+            "All {input_count} files failed extraction; exiting non-zero. See log for per-file errors."
+        );
+        std::process::exit(2);
     }
 
     Ok(())

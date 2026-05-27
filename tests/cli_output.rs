@@ -101,6 +101,44 @@ fn files_from_reads_newline_delimited_paths() {
 }
 
 #[test]
+fn batch_with_zero_successes_exits_non_zero() {
+    // Point the provider at a port with no listener so every extraction fails
+    // with a connection error. With two PDFs and zero successes, invo must
+    // exit non-zero (specifically code 2) so wrappers like `invo *.pdf || handle`
+    // don't see false success.
+    let config_path = temp_path("batch-all-fail.yaml");
+    fs::write(
+        &config_path,
+        b"llm:\n  providers:\n    - name: ollama\n      enabled: true\n      model: \"qwen2.5:1.5b\"\n      base_url: \"http://127.0.0.1:1\"\n  extraction:\n    retry_attempts: 0\noutput:\n  format: json\n",
+    )
+    .expect("temp config should be written");
+
+    let output = invo()
+        .args([
+            "-c",
+            config_path.to_str().unwrap(),
+            "samples/misc/2025.11.30 - GoogleCloudEMEALimited.pdf",
+            "samples/misc/2025.05.13 - Ploi.pdf",
+        ])
+        .output()
+        .expect("invo should run");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "all-fail batch should exit 2; got {:?}, stderr={}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr),
+    );
+
+    let stderr = String::from_utf8(output.stderr).expect("stderr should be utf-8");
+    assert!(
+        stderr.contains("All 2 files failed extraction"),
+        "stderr should surface the all-fail summary, got: {stderr}"
+    );
+}
+
+#[test]
 fn config_validate_reports_missing_file_and_effective_defaults() {
     let home = temp_path("missing-home");
     fs::create_dir_all(&home).expect("temp home should be created");

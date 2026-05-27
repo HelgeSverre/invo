@@ -1,8 +1,9 @@
 ---
 id: TASK-40
 title: Return non-zero exit code when all batch extractions fail
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:07'
 updated_date: '2026-05-27 00:49'
 labels:
@@ -26,8 +27,8 @@ src/main.rs:174-188 swallows per-file errors when inputs.len()>1 and returns Ok(
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 Multi-file batch with zero successes exits non-zero (per TASK-22: exit 2 for all-batch-fail, exit 3 for partial)
-- [ ] #2 Single-file behavior is unchanged
-- [ ] #3 Stderr summary line lists per-file outcome counts on partial failure
-- [ ] #4 Integration test asserts the new exit codes
+- [x] #1 Multi-file batch with zero successes exits non-zero (per TASK-22: exit 2 for all-batch-fail, exit 3 for partial)
+- [x] #2 Single-file behavior is unchanged
+- [ ] #3 Stderr summary line lists per-file outcome counts on partial failure (deferred: this commit scoped to all-fail per user direction; partial-failure summary belongs to the full TASK-22 contract)
+- [x] #4 Integration test asserts the new exit codes
 <!-- AC:END -->
