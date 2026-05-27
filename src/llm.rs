@@ -278,18 +278,89 @@ where
 
         match result {
             Ok(invoice) => return Ok(invoice),
-            Err(error) if attempt < max_retries => {
+            Err(error) if attempt < max_retries && !is_permanent_error(&error) => {
+                let delay = retry_delay(attempt);
                 tracing::warn!(
                     attempt = attempt + 1,
                     max_retries,
-                    "LLM extraction attempt failed: {error}"
+                    delay_ms = delay.as_millis() as u64,
+                    "LLM extraction attempt failed; sleeping {}ms before retry: {error}",
+                    delay.as_millis()
                 );
+                tokio::time::sleep(delay).await;
             }
-            Err(error) => return Err(error),
+            Err(error) => {
+                if is_permanent_error(&error) {
+                    tracing::warn!(
+                        attempt = attempt + 1,
+                        "LLM extraction hit a permanent error; not retrying: {error}"
+                    );
+                }
+                return Err(error);
+            }
         }
     }
 
     unreachable!("retry loop always returns on the final attempt")
+}
+
+/// Exponential backoff with bounded jitter, used between LLM retry attempts.
+/// `attempt` is 0-indexed (first retry uses base * 2^0). Capped at 30s so
+/// max_retries=10 with a few permanent errors interleaved can't stall the
+/// process for minutes.
+fn retry_delay(attempt: u32) -> Duration {
+    const BASE_MS: u64 = 500;
+    const CAP_MS: u64 = 30_000;
+    let exp = 2u64.saturating_pow(attempt);
+    let base = BASE_MS.saturating_mul(exp).min(CAP_MS);
+    Duration::from_millis(base + jitter_ms())
+}
+
+// Cheap source of 0..=400 ms of jitter. Using the low bits of the current
+// nanosecond clock keeps us off the rand dep — for retry jitter we only need
+// to break thundering-herd alignment, not cryptographic randomness.
+fn jitter_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| (d.subsec_nanos() % 401) as u64)
+        .unwrap_or(0)
+}
+
+/// True when an LLM error is unrecoverable by retrying. Auth failures
+/// (401/403), model-not-found (404), and schema-rejection variants of 400
+/// will return the same response on a retry, so retrying wastes tokens, time,
+/// and 429 budget. Inspect the entire error chain so wrappers like
+/// `LLM completion failed: ...` don't hide the underlying status.
+fn is_permanent_error(error: &anyhow::Error) -> bool {
+    let chain_text = error
+        .chain()
+        .map(|e| e.to_string())
+        .collect::<Vec<_>>()
+        .join(" ");
+    let lower = chain_text.to_ascii_lowercase();
+
+    // Authz / authn: 401 Unauthorized, 403 Forbidden.
+    if lower.contains("401") || lower.contains("unauthorized") {
+        return true;
+    }
+    if lower.contains("403") || lower.contains("forbidden") {
+        return true;
+    }
+    // Model not found: 404. Distinct from 404 in URLs because the message
+    // body will say model name; we don't need to discriminate that finely.
+    if lower.contains("404") || lower.contains("model_not_found") {
+        return true;
+    }
+    // Schema/tool rejection on 400: provider rejected our output_schema or
+    // tool definition. A retry will be rejected identically.
+    if lower.contains("400")
+        && (lower.contains("schema")
+            || lower.contains("invalid_request")
+            || lower.contains("unsupported"))
+    {
+        return true;
+    }
+    false
 }
 
 async fn complete_invoice_once<M>(
@@ -935,5 +1006,67 @@ mod tests {
 
         assert_eq!(selected.name, ProviderName::Mistral);
         assert_eq!(selected.model, "mistral-large-latest");
+    }
+
+    #[test]
+    fn is_permanent_error_flags_401_unauthorized() {
+        let err = anyhow!("LLM completion failed")
+            .context("HTTP 401 Unauthorized: invalid api key");
+        assert!(
+            is_permanent_error(&err),
+            "401-shaped error must not be retried"
+        );
+    }
+
+    #[test]
+    fn is_permanent_error_flags_403_forbidden() {
+        let err = anyhow!("rig request failed: 403 Forbidden");
+        assert!(is_permanent_error(&err));
+    }
+
+    #[test]
+    fn is_permanent_error_flags_404_model_not_found() {
+        let err = anyhow!("Provider error: 404 model_not_found: gpt-9000");
+        assert!(is_permanent_error(&err));
+    }
+
+    #[test]
+    fn is_permanent_error_flags_400_schema_rejection() {
+        let err = anyhow!("LLM completion failed: 400 Bad Request: schema not supported");
+        assert!(is_permanent_error(&err));
+    }
+
+    #[test]
+    fn is_permanent_error_passes_transient_failures_through() {
+        // Anything that isn't auth/model/schema is treated as transient so
+        // the retry loop can take another swing.
+        let timeout = anyhow!("LLM request timed out after 60s");
+        let conn = anyhow!("error sending request: connection refused");
+        let rate = anyhow!("HTTP 429 Too Many Requests");
+        let server = anyhow!("HTTP 503 Service Unavailable");
+
+        assert!(!is_permanent_error(&timeout));
+        assert!(!is_permanent_error(&conn));
+        assert!(!is_permanent_error(&rate));
+        assert!(!is_permanent_error(&server));
+    }
+
+    #[test]
+    fn retry_delay_grows_exponentially_and_stays_within_cap() {
+        // base 500ms * 2^attempt + 0..=400ms jitter, capped at 30s.
+        let d0 = retry_delay(0).as_millis() as u64;
+        let d1 = retry_delay(1).as_millis() as u64;
+        let d2 = retry_delay(2).as_millis() as u64;
+
+        // attempt 0: 500..=900
+        assert!((500..=900).contains(&d0), "attempt 0 delay was {d0}ms");
+        // attempt 1: 1000..=1400
+        assert!((1000..=1400).contains(&d1), "attempt 1 delay was {d1}ms");
+        // attempt 2: 2000..=2400
+        assert!((2000..=2400).contains(&d2), "attempt 2 delay was {d2}ms");
+
+        // Far-out attempts must cap at 30s + jitter, not overflow.
+        let huge = retry_delay(63).as_millis() as u64;
+        assert!(huge <= 30_400, "huge attempt should cap at 30s+jitter, got {huge}ms");
     }
 }
