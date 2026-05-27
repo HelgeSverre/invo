@@ -57,22 +57,39 @@ impl LlmContext {
     pub fn build(config: &Config, provider_override: Option<ProviderName>) -> Result<Self> {
         let provider = select_provider_config(config, provider_override)?.clone();
         let timeout = resolve_timeout(provider.name, &config.llm.extraction);
+        let http = build_http_client(timeout)?;
         let client = match provider.name {
-            ProviderName::Ollama => LlmClient::Ollama(build_ollama_client(&provider, timeout)?),
+            ProviderName::Ollama => {
+                LlmClient::Ollama(build_ollama_client(&provider, http.clone(), timeout)?)
+            }
             ProviderName::OpenAI => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::OpenAI(build_openai_client(&provider, api_key, timeout)?)
+                LlmClient::OpenAI(build_openai_client(
+                    &provider,
+                    http.clone(),
+                    api_key,
+                    timeout,
+                )?)
             }
             ProviderName::Anthropic => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::Anthropic(build_anthropic_client(&provider, api_key, timeout)?)
+                LlmClient::Anthropic(build_anthropic_client(
+                    &provider,
+                    http.clone(),
+                    api_key,
+                    timeout,
+                )?)
             }
             ProviderName::Mistral => {
                 let api_key = get_api_key(provider.name, &provider.api_key_env)?;
-                LlmClient::Mistral(build_mistral_client(&provider, api_key, timeout)?)
+                LlmClient::Mistral(build_mistral_client(
+                    &provider,
+                    http.clone(),
+                    api_key,
+                    timeout,
+                )?)
             }
         };
-        let http = build_http_client(timeout)?;
         Ok(Self {
             provider,
             client,
@@ -198,8 +215,11 @@ fn build_http_client(timeout: Duration) -> Result<reqwest::Client> {
         .context("Failed to build reqwest client for LLM provider")
 }
 
-fn build_ollama_client(provider_config: &Provider, timeout: Duration) -> Result<ollama::Client> {
-    let http = build_http_client(timeout)?;
+fn build_ollama_client(
+    provider_config: &Provider,
+    http: reqwest::Client,
+    _timeout: Duration,
+) -> Result<ollama::Client> {
     Ok(ollama::Client::builder()
         .api_key(Nothing)
         .base_url(
@@ -214,10 +234,10 @@ fn build_ollama_client(provider_config: &Provider, timeout: Duration) -> Result<
 
 fn build_openai_client(
     provider_config: &Provider,
+    http: reqwest::Client,
     api_key: String,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<openai::Client> {
-    let http = build_http_client(timeout)?;
     Ok(openai::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -232,10 +252,10 @@ fn build_openai_client(
 
 fn build_anthropic_client(
     provider_config: &Provider,
+    http: reqwest::Client,
     api_key: String,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<anthropic::Client> {
-    let http = build_http_client(timeout)?;
     Ok(anthropic::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -250,10 +270,10 @@ fn build_anthropic_client(
 
 fn build_mistral_client(
     provider_config: &Provider,
+    http: reqwest::Client,
     api_key: String,
-    timeout: Duration,
+    _timeout: Duration,
 ) -> Result<mistral::Client> {
-    let http = build_http_client(timeout)?;
     Ok(mistral::Client::builder()
         .api_key(api_key)
         .base_url(
@@ -778,8 +798,9 @@ mod tests {
             api_key_env: None,
         };
 
-        let client =
-            build_ollama_client(&provider, Duration::from_secs(60)).expect("should build client");
+        let http = build_http_client(Duration::from_secs(60)).expect("test http client");
+        let client = build_ollama_client(&provider, http, Duration::from_secs(60))
+            .expect("should build client");
         // Default URL is set in the builder, we can't easily inspect it but we know it works
         assert!(client.base_url().contains("localhost:11434"));
     }
@@ -794,8 +815,9 @@ mod tests {
             api_key_env: None,
         };
 
-        let client =
-            build_ollama_client(&provider, Duration::from_secs(60)).expect("should build client");
+        let http = build_http_client(Duration::from_secs(60)).expect("test http client");
+        let client = build_ollama_client(&provider, http, Duration::from_secs(60))
+            .expect("should build client");
         assert!(client.base_url().contains("custom-ollama"));
     }
 
@@ -809,8 +831,14 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_openai_client(&provider, "sk-test".to_string(), Duration::from_secs(60))
-            .expect("should build client");
+        let http = build_http_client(Duration::from_secs(60)).expect("test http client");
+        let client = build_openai_client(
+            &provider,
+            http,
+            "sk-test".to_string(),
+            Duration::from_secs(60),
+        )
+        .expect("should build client");
         assert!(client.base_url().contains("api.openai.com"));
     }
 
@@ -826,8 +854,14 @@ mod tests {
             api_key_env: None,
         };
 
-        let client = build_openai_client(&provider, "sk-test".to_string(), Duration::from_secs(60))
-            .expect("should build client");
+        let http = build_http_client(Duration::from_secs(60)).expect("test http client");
+        let client = build_openai_client(
+            &provider,
+            http,
+            "sk-test".to_string(),
+            Duration::from_secs(60),
+        )
+        .expect("should build client");
         assert!(client.base_url().contains("proxy.corp.local"));
         assert!(!client.base_url().contains("api.openai.com"));
     }

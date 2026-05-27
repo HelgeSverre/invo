@@ -107,6 +107,7 @@ const DEFAULT_OLLAMA_OCR_URL: &str = "http://localhost:11434";
 enum Auth<'a> {
     Bearer(&'a str),
     AnthropicKey(&'a str),
+    #[cfg_attr(not(feature = "ollama-ocr"), allow(dead_code))]
     None,
 }
 
