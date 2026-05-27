@@ -11,9 +11,12 @@ mod output;
 mod pdf;
 mod prompt;
 
-use anyhow::Result;
+use std::sync::Arc;
+
+use anyhow::{Context, Result};
 use clap::{CommandFactory, Parser};
 use clap_complete::{generate, Shell};
+use futures::StreamExt;
 
 use agent_context::{handle_agent_context, AgentContextOptions};
 use cli::{Cli, Commands};
@@ -60,34 +63,66 @@ async fn main() -> Result<()> {
 
     let input_count = inputs.len();
     let streaming = is_ndjson_stream(&config, &output_options, input_count);
+
+    // Single-file mode preserves the anyhow-error propagation contract that
+    // scripts depend on: process exits 1, error message goes to stderr via
+    // anyhow chain. No need for stream/Arc overhead.
+    if input_count == 1 {
+        let input_spec = inputs
+            .into_iter()
+            .next()
+            .expect("single-file input must exist");
+        let input_path = input_spec.path.clone();
+        let input = input_spec
+            .read()
+            .with_context(|| format!("Failed to read input: {input_path}"))?;
+        let result = extract_invoice(&input, &config, &llm).await?;
+        if !config.actions.is_empty() {
+            actions::run_actions(&config.actions, &result, &input.bytes)
+                .with_context(|| format!("Post-processing aborted for {}", input.path))?;
+        }
+        if streaming {
+            write_ndjson_record(&result)?;
+        } else {
+            print!("{}", render_results(&[result], &config, &output_options)?);
+        }
+        return Ok(());
+    }
+
+    // Batch mode. Parallelism > 1 yields completion order (first-done-first-out)
+    // for both streaming and buffered output. Each record's file.path + file.hash
+    // self-identify which input it came from; consumers that need input order
+    // should sort downstream.
+    let parallelism = config.processing.parallelism.max(1) as usize;
+    let config = Arc::new(config);
+    let llm = Arc::new(llm);
     let mut results = Vec::new();
     let mut success_count: usize = 0;
     let mut failure_count: usize = 0;
 
-    for input_spec in inputs {
-        let input_path = input_spec.path.clone();
-        let input = match input_spec.read() {
-            Ok(input) => input,
-            Err(error) => {
-                tracing::error!("Failed to process {}: {}", input_path, error);
-                if input_count == 1 {
-                    return Err(error);
-                }
-                failure_count += 1;
-                continue;
+    let mut stream = futures::stream::iter(inputs.into_iter().map(|input_spec| {
+        let config = Arc::clone(&config);
+        let llm = Arc::clone(&llm);
+        async move {
+            let input_path = input_spec.path.clone();
+            let input = input_spec
+                .read()
+                .with_context(|| format!("Failed to read input: {input_path}"))?;
+            let result = extract_invoice(&input, &config, &llm)
+                .await
+                .with_context(|| format!("Failed to process {}", input.path))?;
+            if !config.actions.is_empty() {
+                actions::run_actions(&config.actions, &result, &input.bytes)
+                    .with_context(|| format!("Post-processing aborted for {}", input.path))?;
             }
-        };
+            Ok::<_, anyhow::Error>(result)
+        }
+    }))
+    .buffer_unordered(parallelism);
 
-        match extract_invoice(&input, &config, &llm).await {
+    while let Some(outcome) = stream.next().await {
+        match outcome {
             Ok(result) => {
-                if !config.actions.is_empty() {
-                    if let Err(err) = actions::run_actions(&config.actions, &result, &input.bytes) {
-                        tracing::error!("Post-processing aborted for {}: {err:#}", input.path);
-                        if input_count == 1 {
-                            return Err(err);
-                        }
-                    }
-                }
                 if streaming {
                     write_ndjson_record(&result)?;
                 } else {
@@ -96,10 +131,7 @@ async fn main() -> Result<()> {
                 success_count += 1;
             }
             Err(error) => {
-                tracing::error!("Failed to process {}: {}", input.path, error);
-                if input_count == 1 {
-                    return Err(error);
-                }
+                tracing::error!("{error:#}");
                 failure_count += 1;
             }
         }

@@ -1193,6 +1193,7 @@ dependencies = [
  "clap_complete",
  "csv",
  "dirs",
+ "futures",
  "glob",
  "image",
  "lopdf",

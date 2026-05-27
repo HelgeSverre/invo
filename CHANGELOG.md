@@ -79,3 +79,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   successes, `3` partial success (>=1 succeeded AND >=1 failed). Single-file
   failures still propagate as anyhow errors. Any batch with failures prints a
   one-line summary to stderr: `Batch: N succeeded, M failed (of K files).`
+
+- `processing.parallelism` config field (TASK-29). Default `1` preserves
+  the previous sequential behavior. Values > 1 run up to N extractions
+  concurrently and emit each result as soon as it completes — completion
+  order, not input order. Each record's `file.path` / `file.hash` fields
+  still self-identify which input it came from. Single-file runs ignore
+  the setting. Implementation uses `futures::StreamExt::buffer_unordered`
+  over a single shared `LlmContext`, so the reqwest connection pool is
+  also shared across the parallel workers.

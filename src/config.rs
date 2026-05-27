@@ -342,11 +342,34 @@ pub enum OnError {
 }
 
 /// Processing options
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessingConfig {
     #[serde(default)]
     pub ocr: OcrConfig,
+
+    /// Maximum number of files processed concurrently in batch mode. `1`
+    /// preserves the previous sequential behavior (input order = output
+    /// order). Values > 1 run extractions concurrently and emit results in
+    /// completion order — the per-record file.path/file.hash fields still
+    /// self-identify each record, but downstream tools that relied on input
+    /// order must use those fields instead. Single-file runs ignore this
+    /// setting.
+    #[serde(default = "default_parallelism")]
+    pub parallelism: u32,
+}
+
+impl Default for ProcessingConfig {
+    fn default() -> Self {
+        Self {
+            ocr: OcrConfig::default(),
+            parallelism: default_parallelism(),
+        }
+    }
+}
+
+fn default_parallelism() -> u32 {
+    1
 }
 
 /// OCR fallback for scanned/image-only PDFs. The variant selects how OCR is
@@ -654,6 +677,41 @@ mod tests {
             warnings.is_empty(),
             "warnings should be empty when env var is set, got: {warnings:?}"
         );
+    }
+
+    #[test]
+    fn processing_parallelism_defaults_to_one() {
+        let config = Config::default();
+        assert_eq!(
+            config.processing.parallelism, 1,
+            "Default parallelism must be 1 to preserve sequential semantics for existing configs"
+        );
+    }
+
+    #[test]
+    fn processing_parallelism_is_parsed_from_yaml() {
+        let yaml = r#"
+processing:
+  parallelism: 8
+"#;
+        let config: Config = parse_config_str(yaml, std::path::Path::new("test.yaml"))
+            .expect("parallelism: 8 must deserialize cleanly");
+        assert_eq!(config.processing.parallelism, 8);
+    }
+
+    #[test]
+    fn processing_parallelism_zero_is_clamped_at_runtime() {
+        // parallelism: 0 deserializes fine — it's u32 — but main.rs clamps with
+        // .max(1) before feeding buffer_unordered. This test locks in that
+        // we accept any u32 at config-validation time; the clamping is a
+        // runtime concern verified by the batch loop.
+        let yaml = r#"
+processing:
+  parallelism: 0
+"#;
+        let config: Config = parse_config_str(yaml, std::path::Path::new("test.yaml"))
+            .expect("parallelism: 0 must deserialize cleanly");
+        assert_eq!(config.processing.parallelism, 0);
     }
 
     #[test]

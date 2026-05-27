@@ -180,6 +180,13 @@ invo emits JSON by default (`--format json`), with a stable top-level shape. A s
 
 In single-file mode (one input), the per-file error propagates directly as a non-zero exit; codes `2` and `3` are batch-only. When a batch finishes with any failures, stderr prints a one-line summary: `Batch: N succeeded, M failed (of K files). See log for per-file errors.`
 
+**Batch parallelism.** By default, batches run sequentially (`processing.parallelism: 1`) and output preserves input order. Setting `processing.parallelism: N` (N > 1) processes up to N files concurrently and emits each result as soon as it's ready — **completion order, not input order**. The per-record `file.path` and `file.hash` fields self-identify each result, so consumers that need a particular order should sort downstream (e.g. `jq -s 'sort_by(.file.path)'`). Single-file runs ignore the setting.
+
+```yaml
+processing:
+  parallelism: 4   # up to 4 concurrent extractions
+```
+
 ## Commands & flags
 
 | Flag | Values | Purpose |
