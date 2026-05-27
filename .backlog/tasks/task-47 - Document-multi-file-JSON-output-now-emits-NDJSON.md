@@ -1,8 +1,9 @@
 ---
 id: TASK-47
 title: Document multi-file JSON output now emits NDJSON
-status: To Do
-assignee: []
+status: Done
+assignee:
+  - '@claude'
 created_date: '2026-05-27 00:08'
 labels:
   - code-review
@@ -24,7 +25,7 @@ Old multi-file --json output emitted a sequence of pretty-printed JSON blobs (te
 
 ## Acceptance Criteria
 <!-- AC:BEGIN -->
-- [ ] #1 CHANGELOG documents the format change and provides a one-line jq migration example
-- [ ] #2 agent-context payload labels --json batch output as NDJSON (couples with the agent-context shape ambiguity fix)
-- [ ] #3 README batch-output example reflects NDJSON
+- [x] #1 CHANGELOG documents the format change and provides a one-line jq migration example (CHANGELOG.md [Unreleased]/Changed)
+- [x] #2 agent-context payload labels --json batch output as NDJSON (src/agent_context.rs already emits "batch": "NDJSON — one compact JSON object per line")
+- [x] #3 README batch-output example reflects NDJSON (README.md Output section already documents NDJSON shape + example invocations)
 <!-- AC:END -->
