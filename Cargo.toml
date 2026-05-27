@@ -23,9 +23,11 @@ pdf-extract = "0.10"
 # LLM providers
 rig-core = "0.37"
 
-# HTTP (used directly by the Mistral OCR fallback in src/extractor.rs;
-# rustls-tls keeps Windows builds clean of OpenSSL)
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+# HTTP (used directly by the Mistral OCR fallback in src/extractor.rs and by
+# the LLM client builders in src/llm.rs for per-request timeouts; rustls-tls
+# keeps Windows builds clean of OpenSSL). Pinned to 0.13 to match rig-core
+# 0.37 so the HttpClientExt impl on reqwest::Client lines up.
+reqwest = { version = "0.13", default-features = false, features = ["json", "rustls"] }
 base64 = "0.22"
 
 # Async runtime

@@ -36,6 +36,11 @@ llm:
     temperature: 0.1
     max_tokens: 2000
     retry_attempts: 2
+    # Per-request timeout (seconds) for the LLM call. Optional — when omitted,
+    # defaults to 120s for local Ollama and 60s for hosted providers
+    # (openai / anthropic / mistral). Set this when you have a slow local
+    # model or a strict hosted-budget SLA.
+    # timeout_secs: 60
 
 # Known vendors - improves extraction accuracy
 vendors: []
