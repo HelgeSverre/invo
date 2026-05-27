@@ -239,21 +239,61 @@ where
 }
 
 fn assistant_text(choice: rig_core::OneOrMany<AssistantContent>) -> Result<String> {
-    let text = choice
-        .into_iter()
+    extract_assistant_payload(choice.into_iter().collect::<Vec<_>>())
+}
+
+/// Pull a JSON-string payload out of an assistant response.
+///
+/// Prefers concatenated `Text` blocks (today's behavior across all providers).
+/// Falls back to serializing `ToolCall.function.arguments` as a JSON string,
+/// because the Anthropic adapter in rig-core 0.37 may surface native
+/// structured output as a `tool_use` block (AssistantContent::ToolCall) on
+/// some response shapes; without the fallback the extracted JSON would be
+/// dropped and retries would fire pointlessly. We prefer the first ToolCall
+/// whose function name matches the schema title we send ("Invoice"), and
+/// otherwise take the first ToolCall we see.
+fn extract_assistant_payload(contents: Vec<AssistantContent>) -> Result<String> {
+    let text = contents
+        .iter()
         .filter_map(|content| match content {
-            AssistantContent::Text(text) => Some(text.text),
+            AssistantContent::Text(text) => Some(text.text.as_str()),
             _ => None,
         })
         .collect::<Vec<_>>()
         .join("");
 
-    let text = text.trim().to_string();
-    if text.is_empty() {
-        Err(anyhow!("No text content from LLM response"))
-    } else {
-        Ok(text)
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+        return Ok(trimmed.to_string());
     }
+
+    let schema_name = schemars::schema_for!(Invoice)
+        .as_object()
+        .and_then(|o| o.get("title"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Invoice")
+        .to_string();
+
+    let preferred = contents.iter().find_map(|content| match content {
+        AssistantContent::ToolCall(call) if call.function.name == schema_name => {
+            Some(&call.function.arguments)
+        }
+        _ => None,
+    });
+
+    let arguments = preferred.or_else(|| {
+        contents.iter().find_map(|content| match content {
+            AssistantContent::ToolCall(call) => Some(&call.function.arguments),
+            _ => None,
+        })
+    });
+
+    if let Some(arguments) = arguments {
+        return serde_json::to_string(arguments)
+            .context("Failed to serialize tool_use arguments from LLM response");
+    }
+
+    Err(anyhow!("No text content from LLM response"))
 }
 
 fn get_api_key(provider_name: ProviderName, env_var: &Option<String>) -> Result<String> {
@@ -412,6 +452,65 @@ mod tests {
         .expect("text response should be extracted");
 
         assert_eq!(text, "{\"vendor\":\"Acme\",\"currency\":\"USD\"}");
+    }
+
+    #[test]
+    fn falls_back_to_tool_call_arguments_when_no_text_content() {
+        // Anthropic adapter in rig-core may emit structured output as a
+        // `tool_use` block; assistant_text must surface those arguments
+        // as a JSON string instead of failing with "No text content".
+        use rig_core::completion::message::{ToolCall, ToolFunction};
+
+        let arguments = serde_json::json!({
+            "vendor": "Acme",
+            "invoice_date": "2026-05-25",
+            "total_amount": 12.5,
+            "currency": "USD"
+        });
+        let tool_call = AssistantContent::ToolCall(ToolCall::new(
+            "call_1".to_string(),
+            ToolFunction::new("Invoice".to_string(), arguments.clone()),
+        ));
+
+        let payload = extract_assistant_payload(vec![tool_call]).expect("tool_use fallback");
+
+        let parsed: serde_json::Value =
+            serde_json::from_str(&payload).expect("payload should be JSON");
+        assert_eq!(parsed, arguments);
+    }
+
+    #[test]
+    fn prefers_tool_call_matching_schema_name() {
+        // If the assistant emits multiple ToolCalls, prefer the one whose
+        // function name matches the structured-output schema title (Invoice).
+        use rig_core::completion::message::{ToolCall, ToolFunction};
+
+        let invoice_args = serde_json::json!({"vendor":"Acme","currency":"USD"});
+        let other_args = serde_json::json!({"unrelated":"value"});
+
+        let contents = vec![
+            AssistantContent::ToolCall(ToolCall::new(
+                "call_other".to_string(),
+                ToolFunction::new("search_web".to_string(), other_args),
+            )),
+            AssistantContent::ToolCall(ToolCall::new(
+                "call_invoice".to_string(),
+                ToolFunction::new("Invoice".to_string(), invoice_args.clone()),
+            )),
+        ];
+
+        let payload = extract_assistant_payload(contents).expect("preferred tool_use payload");
+        let parsed: serde_json::Value =
+            serde_json::from_str(&payload).expect("payload should be JSON");
+        assert_eq!(parsed, invoice_args);
+    }
+
+    #[test]
+    fn errors_when_no_text_and_no_tool_calls() {
+        // Empty / non-text-non-toolcall content should still raise the same
+        // error the user sees today; nothing else changed.
+        assert!(extract_assistant_payload(vec![]).is_err());
+        assert!(extract_assistant_payload(vec![AssistantContent::text("   ")]).is_err());
     }
 
     #[tokio::test]
