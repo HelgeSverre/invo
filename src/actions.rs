@@ -5,7 +5,7 @@ use std::process::Command;
 
 use anyhow::{anyhow, bail, Context, Result};
 
-use crate::config::{Action, Config, ExportAction, FileAction, HookAction, OnError, OutputFormat};
+use crate::config::{Action, ExportAction, FileAction, HookAction, OnError, OutputFormat};
 use crate::invoice::ExtractionResult;
 
 impl Action {
