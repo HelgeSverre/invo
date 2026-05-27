@@ -1098,4 +1098,32 @@ mod tests {
             "huge attempt should cap at 30s+jitter, got {huge}ms"
         );
     }
+
+    #[test]
+    fn classify_retry_retries_transient_errors_while_attempts_remain() {
+        let err = anyhow!("HTTP 429 Too Many Requests");
+        match classify_retry(&err, 0, 2) {
+            RetryDecision::Retry { delay } => assert!(
+                delay > Duration::ZERO,
+                "transient retry must use a positive backoff delay"
+            ),
+            RetryDecision::Stop => {
+                panic!("expected Retry on transient error with attempts remaining")
+            }
+        }
+    }
+
+    #[test]
+    fn classify_retry_stops_when_retry_budget_is_exhausted() {
+        // attempt == max_retries means we've already used the last retry.
+        let err = anyhow!("HTTP 429 Too Many Requests");
+        assert!(matches!(classify_retry(&err, 2, 2), RetryDecision::Stop));
+    }
+
+    #[test]
+    fn classify_retry_stops_immediately_on_permanent_errors() {
+        // A 401 is permanent — retrying wastes tokens and a 429 budget.
+        let err = anyhow!("HTTP 401 Unauthorized: invalid api key");
+        assert!(matches!(classify_retry(&err, 0, 5), RetryDecision::Stop));
+    }
 }
