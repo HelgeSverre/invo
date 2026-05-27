@@ -97,6 +97,7 @@ fn active_config_keys() -> &'static [&'static str] {
         "llm.extraction.temperature",
         "llm.extraction.max_tokens",
         "llm.extraction.retry_attempts",
+        "llm.extraction.max_pdf_text_chars",
         "vendors[].name",
         "vendors[].patterns",
         "vendors[].currency",
@@ -120,16 +121,9 @@ fn active_config_keys() -> &'static [&'static str] {
     ]
 }
 
+// All schema keys are now active runtime configuration. Stale parsed-only
+// keys were removed in TASK-44; unknown keys are rejected by
+// #[serde(deny_unknown_fields)] at config load time.
 fn parsed_only_config_keys() -> &'static [&'static str] {
-    &[
-        "llm.providers[].model_path",
-        "ignored_vendors",
-        "processing.parallelism",
-        "processing.deduplication.enabled",
-        "processing.deduplication.check_hash",
-        "processing.deduplication.hash_store",
-        "logging",
-        "output.include_hash",
-        "output.schema_version",
-    ]
+    &[]
 }

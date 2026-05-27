@@ -189,7 +189,7 @@ invo emits JSON by default (`--format json`), with a stable top-level shape. A s
 | `invo config path` | Print the config path invo will use |
 | `invo config show --effective [--json]` | Show effective config after defaults are applied |
 | `invo config validate [--json]` | Strictly validate config, or report that built-in defaults are in use when the file is missing |
-| `invo config doctor [--json]` | Report parsed-only/inactive config keys |
+| `invo config doctor [--json]` | Report config issues such as removed action types or missing OCR credentials |
 | `invo config schema --json` | Emit the JSON schema for config.yaml |
 | `invo agent-context --json` | Emit structured CLI/config context for agents and scripts |
 
@@ -265,19 +265,18 @@ output:
   format: json
 ```
 
-See [`config.yaml`](./config.yaml) in the repo root for the active starter config written by `invo init`. The parser accepts some future fields for compatibility, but `invo init` only writes settings that affect runtime behavior today.
+See [`config.yaml`](./config.yaml) in the repo root for the active starter config written by `invo init`. Every key listed below is active at runtime; unknown keys are rejected at load time by strict validation.
 
 | Config key | Status | Runtime effect |
 | ---------- | ------ | -------------- |
 | `identity.company`, `identity.name`, `identity.email`, `identity.address`, `identity.vat_number`, `identity.aliases` | Active | Added to the extraction prompt as buyer context so the model does not mistake you for the vendor |
 | `llm.providers[].name`, `enabled`, `model`, `base_url`, `api_key_env` | Active | Selects and configures the LLM provider |
 | `llm.extraction.temperature`, `max_tokens`, `retry_attempts` | Active | Passed into Rig completion requests and retry handling |
+| `llm.extraction.max_pdf_text_chars` | Active | Cap on raw PDF text length passed to the LLM (default 32768) — defends against prompt injection blow-ups |
 | `vendors[].name`, `patterns`, `currency`, `category`, `hints` | Active | Added to the extraction prompt as known vendor context |
 | `output.format` | Active | Sets default `json`, `yaml`, or `csv` output |
 | `processing.ocr.mode` (`none` \| `same` \| `mistral` \| `llm`), `processing.ocr.model`, `processing.ocr.api_key_env`, `processing.ocr.name`, `processing.ocr.base_url` | Active | OCR fallback for scanned PDFs — see "OCR fallback" below |
 | `actions[]` (`copy` \| `move` \| `export` \| `hook`) | Active | Post-processing — see "Post-processing actions" below |
-| `llm.extraction.max_pdf_text_chars` | Active | Cap on raw PDF text length passed to the LLM (default 32768) — defends against prompt injection blow-ups |
-| `llm.providers[].model_path`, `ignored_vendors`, `processing.parallelism`, `processing.deduplication.*`, `logging`, `output.include_hash`, `output.schema_version` | Future | Parsed only; not written by `invo init`; `invo config doctor` reports these when present |
 
 ## Providers
 

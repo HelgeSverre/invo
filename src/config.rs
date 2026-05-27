@@ -20,9 +20,6 @@ pub struct Config {
     pub vendors: Vec<Vendor>,
 
     #[serde(default)]
-    pub ignored_vendors: Vec<IgnoredVendor>,
-
-    #[serde(default)]
     pub output: OutputConfig,
 
     #[serde(default)]
@@ -30,9 +27,6 @@ pub struct Config {
 
     #[serde(default)]
     pub processing: ProcessingConfig,
-
-    #[serde(default)]
-    pub logging: LoggingConfig,
 }
 
 /// User/company identity - helps LLM distinguish buyer from seller
@@ -106,9 +100,6 @@ pub struct Provider {
     pub base_url: Option<String>,
 
     #[serde(default)]
-    pub model_path: Option<PathBuf>,
-
-    #[serde(default)]
     pub api_key_env: Option<String>,
 }
 
@@ -119,7 +110,6 @@ impl Provider {
             enabled: true,
             model: DEFAULT_OLLAMA_MODEL.to_string(),
             base_url: Some(DEFAULT_OLLAMA_URL.to_string()),
-            model_path: None,
             api_key_env: None,
         }
     }
@@ -220,43 +210,12 @@ pub struct Vendor {
     pub hints: Option<String>,
 }
 
-/// Vendor to ignore/skip
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct IgnoredVendor {
-    #[serde(default)]
-    pub patterns: Vec<String>,
-
-    #[serde(default)]
-    pub reason: Option<String>,
-}
-
 /// Output configuration
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct OutputConfig {
     #[serde(default)]
     pub format: OutputFormat,
-
-    #[serde(default = "default_true")]
-    pub include_hash: bool,
-
-    #[serde(default = "default_schema_version")]
-    pub schema_version: u32,
-}
-
-impl Default for OutputConfig {
-    fn default() -> Self {
-        Self {
-            format: OutputFormat::Json,
-            include_hash: true,
-            schema_version: 1,
-        }
-    }
-}
-
-fn default_schema_version() -> u32 {
-    1
 }
 
 #[derive(
@@ -340,31 +299,11 @@ pub enum OnError {
 }
 
 /// Processing options
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ProcessingConfig {
-    #[serde(default = "default_parallelism")]
-    pub parallelism: usize,
-
     #[serde(default)]
     pub ocr: OcrConfig,
-
-    #[serde(default)]
-    pub deduplication: DeduplicationConfig,
-}
-
-impl Default for ProcessingConfig {
-    fn default() -> Self {
-        Self {
-            parallelism: default_parallelism(),
-            ocr: OcrConfig::default(),
-            deduplication: DeduplicationConfig::default(),
-        }
-    }
-}
-
-fn default_parallelism() -> usize {
-    4
 }
 
 /// OCR fallback for scanned/image-only PDFs. The variant selects how OCR is
@@ -402,54 +341,6 @@ fn default_mistral_ocr_model() -> String {
 }
 fn default_mistral_api_key_env() -> String {
     "MISTRAL_API_KEY".to_string()
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, Default)]
-#[serde(deny_unknown_fields)]
-pub struct DeduplicationConfig {
-    #[serde(default)]
-    pub enabled: bool,
-
-    #[serde(default)]
-    pub check_hash: bool,
-
-    #[serde(default)]
-    pub hash_store: Option<PathBuf>,
-}
-
-/// Logging configuration
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-#[serde(deny_unknown_fields)]
-pub struct LoggingConfig {
-    #[serde(default = "default_log_level")]
-    pub level: String,
-
-    #[serde(default)]
-    pub file: Option<PathBuf>,
-
-    #[serde(default)]
-    pub rotate: bool,
-
-    #[serde(default = "default_max_size_mb")]
-    pub max_size_mb: u32,
-}
-
-impl Default for LoggingConfig {
-    fn default() -> Self {
-        Self {
-            level: default_log_level(),
-            file: None,
-            rotate: false,
-            max_size_mb: default_max_size_mb(),
-        }
-    }
-}
-
-fn default_log_level() -> String {
-    "info".to_string()
-}
-fn default_max_size_mb() -> u32 {
-    10
 }
 
 #[derive(Debug, Clone)]

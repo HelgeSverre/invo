@@ -495,7 +495,6 @@ mod tests {
             enabled: true,
             model: "mistral-large-latest".to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: Some("MISTRAL_API_KEY".to_string()),
         }
     }
@@ -506,7 +505,6 @@ mod tests {
             enabled: true,
             model: "qwen2.5:1.5b".to_string(),
             base_url: Some("http://localhost:11434".to_string()),
-            model_path: None,
             api_key_env: None,
         }
     }
@@ -589,7 +587,6 @@ mod tests {
             enabled: true,
             model: "claude-3-5-sonnet-latest".to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: Some("ANTHROPIC_API_KEY".to_string()),
         }
     }
@@ -600,7 +597,6 @@ mod tests {
             enabled: true,
             model: "gpt-4o".to_string(),
             base_url: None,
-            model_path: None,
             api_key_env: Some("OPENAI_API_KEY".to_string()),
         }
     }

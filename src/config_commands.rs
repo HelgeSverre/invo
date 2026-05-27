@@ -187,12 +187,6 @@ fn config_doctor_warnings(loaded: &LoadedConfig) -> Result<Vec<String>> {
         .with_context(|| format!("Failed to parse config file: {}", loaded.path.display()))?;
     let mut warnings = Vec::new();
 
-    if value_at(&value, &["ignored_vendors"]).is_some_and(|value| !value_is_empty(value)) {
-        warnings.push(
-            "ignored_vendors is parsed for future compatibility but is not active at runtime"
-                .to_string(),
-        );
-    }
     // actions[].type = notify was dropped in TASK-31. Warn if any survives so
     // the user knows to remove or replace with a hook.
     if let Some(actions) = value_at(&value, &["actions"]).and_then(Value::as_sequence) {
@@ -203,18 +197,6 @@ fn config_doctor_warnings(loaded: &LoadedConfig) -> Result<Vec<String>> {
                 ));
             }
         }
-    }
-    if value_at(&value, &["processing", "parallelism"]).is_some() {
-        warnings.push(
-            "processing.parallelism is parsed for future compatibility but batches still run sequentially"
-                .to_string(),
-        );
-    }
-    if value_at(&value, &["processing", "deduplication"]).is_some() {
-        warnings.push(
-            "processing.deduplication is parsed for future compatibility but file-hash dedup is not active yet"
-                .to_string(),
-        );
     }
     if let Some(ocr) = value_at(&value, &["processing", "ocr"]) {
         let mode = value_at(ocr, &["mode"]).and_then(Value::as_str);
@@ -261,36 +243,6 @@ fn config_doctor_warnings(loaded: &LoadedConfig) -> Result<Vec<String>> {
             );
         }
     }
-    if value_at(&value, &["logging"]).is_some() {
-        warnings.push(
-            "logging is parsed for future compatibility but runtime logging is controlled by -v/--verbose and RUST_LOG"
-                .to_string(),
-        );
-    }
-    if value_at(&value, &["output", "include_hash"]).is_some() {
-        warnings.push(
-            "output.include_hash is parsed for future compatibility but file.hash is always emitted today"
-                .to_string(),
-        );
-    }
-    if value_at(&value, &["output", "schema_version"]).is_some() {
-        warnings.push(
-            "output.schema_version is parsed for future compatibility but output schema versioning is not active yet"
-                .to_string(),
-        );
-    }
-
-    if let Some(providers) = value_at(&value, &["llm", "providers"]).and_then(Value::as_sequence) {
-        for (index, provider) in providers.iter().enumerate() {
-            if value_at(provider, &["model_path"]).is_some() {
-                warnings.push(format!(
-                    "llm.providers[{}].model_path is parsed for future compatibility but is not active at runtime",
-                    index
-                ));
-            }
-        }
-    }
-
     Ok(warnings)
 }
 
@@ -307,16 +259,6 @@ fn mapping_get<'a>(mapping: &'a Mapping, wanted: &str) -> Option<&'a Value> {
     mapping
         .iter()
         .find_map(|(key, value)| (key.as_str() == Some(wanted)).then_some(value))
-}
-
-fn value_is_empty(value: &Value) -> bool {
-    match value {
-        Value::Null => true,
-        Value::Sequence(items) => items.is_empty(),
-        Value::Mapping(items) => items.is_empty(),
-        Value::String(value) => value.is_empty(),
-        _ => false,
-    }
 }
 
 #[derive(Serialize)]
